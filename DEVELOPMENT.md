@@ -146,3 +146,18 @@ The second command must acquire a real WGC/`PrintWindow` frame and apply the con
 5. Run both packaged smoke tests.
 6. Record the EXE size and SHA-256 checksum.
 7. Confirm that `dist` contains only the intended release executable.
+
+## Automated releases
+
+`.github/workflows/release.yml` publishes a release whenever a version tag is pushed. The tag
+must match the version in `pyproject.toml`, including the `v` prefix.
+
+```powershell
+git tag -a v0.4.0 -m "SideScreenUtil v0.4.0"
+git push origin v0.4.0
+```
+
+The Windows runner installs the project, runs Ruff and pytest, builds the one-file executable,
+runs the packaged startup smoke test, writes a SHA-256 checksum, uploads a workflow artifact,
+and creates a GitHub Release containing both files. A version mismatch stops the workflow before
+packaging.

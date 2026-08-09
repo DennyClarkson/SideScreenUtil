@@ -66,6 +66,10 @@ Language packs are JSON files stored in [`assets/i18n`](assets/i18n). The build 
 
 The release executable is written to `dist\SideScreenUtil.exe`.
 
+Prebuilt Windows executables are available from the project's
+[GitHub Releases](https://github.com/DennyClarkson/SideScreenUtil/releases). Each release also
+includes a SHA-256 checksum file.
+
 Smoke tests for the packaged application:
 
 ```powershell
