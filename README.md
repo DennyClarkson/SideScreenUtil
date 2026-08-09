@@ -4,6 +4,12 @@ SideScreenUtil turns a selected Windows display into a black-background, multi-w
 
 > No application can guarantee that an OLED panel will never develop burn-in. Keep the physical display brightness reasonable, use the panel's built-in pixel-shift and pixel-refresh features, and avoid leaving unchanged content visible for long periods.
 
+## Feature overview
+
+![SideScreenUtil control panel sending selected windows to a movable, black-background OLED monitoring canvas](assets/readme-feature-overview.png)
+
+Select and configure windows on the primary display, then monitor them in a flexible layout on a black secondary-screen canvas. SideScreenUtil can move the rendered content gradually and apply visual filters to reduce long-running, spatially uneven pixel use.
+
 ## Highlights
 
 - Monitor any number of application windows at the same time.
