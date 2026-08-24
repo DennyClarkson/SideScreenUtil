@@ -1,6 +1,6 @@
-# SideScreenUtil native slim preview
+# SideScreenUtil compact native edition
 
-This branch contains a native Windows rewrite of SideScreenUtil. It keeps the existing workflow and protection features while replacing Python, Qt, and NumPy with Rust, Win32 controls, Windows Graphics Capture, and a compact CPU filter pipeline.
+The native Windows edition of SideScreenUtil keeps the existing workflow and protection features while replacing Python, Qt, and NumPy with Rust, Win32 controls, Windows Graphics Capture, and a compact CPU filter pipeline. It is released and maintained in parallel with the full Python/Qt edition.
 
 ## Test the local build
 
@@ -10,7 +10,7 @@ Run:
 .\dist\SideScreenUtil-native.exe
 ```
 
-The preview stores its settings separately in `%APPDATA%\SideScreenUtil\settings-native.json`, so it does not overwrite settings from the Python/Qt release.
+The native edition stores its settings separately in `%APPDATA%\SideScreenUtil\settings-native.json`, so it does not overwrite settings from the Python/Qt edition.
 
 The single executable includes its icon, Chinese and English translations, and all runtime code. No adjacent DLLs or asset folders are required.
 
@@ -42,4 +42,4 @@ Memory usage increases with the number and resolution of captured windows. The o
 .\scripts\build-native.ps1
 ```
 
-The build script creates `dist\SideScreenUtil-native.exe`, runs three packaged smoke tests, verifies that no `libunwind.dll` is required, and writes a SHA-256 checksum next to the executable.
+The build script creates `dist\SideScreenUtil-native.exe`, runs four packaged smoke tests, verifies that no `libunwind.dll` is required, and writes a SHA-256 checksum next to the executable. CI can pass `-HeadlessSmoke` to run the environment-safe binary check on a hosted runner.

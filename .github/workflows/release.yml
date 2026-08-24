@@ -24,12 +24,35 @@ jobs:
           architecture: "x64"
           cache: "pip"
 
+      - name: Set up native Rust toolchain
+        shell: pwsh
+        run: |
+          rustup toolchain install stable-x86_64-pc-windows-gnullvm --profile minimal --component rustfmt
+
+      - name: Install LLVM-MinGW for the compact native build
+        shell: pwsh
+        run: |
+          $LlvmVersion = "20260616"
+          $CacheRoot = Join-Path $env:USERPROFILE ".cache\sidescreenutil-toolchains"
+          $Toolchain = Join-Path $CacheRoot "llvm-mingw-$LlvmVersion-ucrt-x86_64"
+          if (-not (Test-Path -LiteralPath $Toolchain)) {
+            New-Item -ItemType Directory -Path $CacheRoot -Force | Out-Null
+            $Archive = Join-Path $CacheRoot "llvm-mingw-$LlvmVersion-ucrt-x86_64.zip"
+            $Uri = "https://github.com/mstorsjo/llvm-mingw/releases/download/$LlvmVersion/llvm-mingw-$LlvmVersion-ucrt-x86_64.zip"
+            Invoke-WebRequest -Uri $Uri -OutFile $Archive
+            Expand-Archive -LiteralPath $Archive -DestinationPath $CacheRoot -Force
+          }
+
       - name: Verify tag and project version
         shell: pwsh
         run: |
-          $Version = & python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])"
-          if ($env:GITHUB_REF_NAME -ne "v$Version") {
-            throw "Tag $env:GITHUB_REF_NAME does not match project version v$Version."
+          $PythonVersion = & python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])"
+          $NativeVersion = & python -c "import tomllib; print(tomllib.load(open('native/Cargo.toml', 'rb'))['package']['version'])"
+          if ($PythonVersion -ne $NativeVersion) {
+            throw "Full edition version $PythonVersion does not match native edition version $NativeVersion."
+          }
+          if ($env:GITHUB_REF_NAME -ne "v$PythonVersion") {
+            throw "Tag $env:GITHUB_REF_NAME does not match project version v$PythonVersion."
           }
 
       - name: Install dependencies
@@ -61,6 +84,14 @@ jobs:
             throw "Packaged capture smoke test failed with exit code $($CaptureProcess.ExitCode)."
           }
 
+      - name: Run native checks
+        shell: pwsh
+        run: .\scripts\test-native.ps1
+
+      - name: Build compact native executable
+        shell: pwsh
+        run: .\scripts\build-native.ps1 -HeadlessSmoke
+
       - name: Write SHA-256 checksum
         shell: pwsh
         run: |
@@ -74,6 +105,8 @@ jobs:
           path: |
             dist/SideScreenUtil.exe
             dist/SideScreenUtil.exe.sha256
+            dist/SideScreenUtil-native.exe
+            dist/SideScreenUtil-native.exe.sha256
           if-no-files-found: error
 
       - name: Create GitHub Release
@@ -84,6 +117,9 @@ jobs:
           gh release create $env:GITHUB_REF_NAME `
             .\dist\SideScreenUtil.exe `
             .\dist\SideScreenUtil.exe.sha256 `
+            .\dist\SideScreenUtil-native.exe `
+            .\dist\SideScreenUtil-native.exe.sha256 `
             --title "SideScreenUtil $env:GITHUB_REF_NAME" `
+            --notes "Two maintained Windows editions are included: SideScreenUtil.exe (full Python/Qt compatibility edition) and SideScreenUtil-native.exe (compact native Rust/Win32 edition). Choose either one; their settings are stored separately." `
             --generate-notes `
             --verify-tag

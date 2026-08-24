@@ -2,7 +2,10 @@
 
 ## Architecture
 
-SideScreenUtil is a Windows-only Python application built with PySide6 Essentials, NumPy, and pywin32.
+SideScreenUtil has two Windows implementations that are released and maintained in parallel:
+
+- the full compatibility edition, built with Python, PySide6 Essentials, NumPy, and pywin32;
+- the compact native edition in `native`, built with Rust, Win32 controls, and Windows Graphics Capture.
 
 The main components are:
 
@@ -118,9 +121,10 @@ The tests cover settings normalization and persistence, language-pack parity, la
 
 ```powershell
 .\scripts\build.ps1
+.\scripts\build-native.ps1
 ```
 
-The build creates a one-file, windowed executable with Python bytecode optimization. It includes:
+The full-edition build creates a one-file, windowed executable with Python bytecode optimization. It includes:
 
 - the runtime PNG and multi-size ICO;
 - all files in `assets/i18n`;
@@ -137,27 +141,31 @@ After packaging, run both checks with the exact release executable:
 
 The second command must acquire a real WGC/`PrintWindow` frame and apply the contour filter before exiting successfully.
 
+The native build creates `dist\SideScreenUtil-native.exe`, verifies that it has no adjacent DLL
+dependency, runs its packaged smoke tests, and writes its checksum. See
+[NATIVE_PREVIEW.md](NATIVE_PREVIEW.md) for the native toolchain and architecture details.
+
 ## Release checklist
 
-1. Update the version in `pyproject.toml` and `src/sidescreen/__init__.py`.
+1. Update the same version in `pyproject.toml`, `src/sidescreen/__init__.py`, `native/Cargo.toml`, and `native/app.rc`.
 2. Verify that built-in language packs contain identical key sets.
 3. Run Ruff and the complete test suite.
-4. Build with `scripts/build.ps1`.
-5. Run both packaged smoke tests.
-6. Record the EXE size and SHA-256 checksum.
-7. Confirm that `dist` contains only the intended release executable.
+4. Build with `scripts/build.ps1` and `scripts/build-native.ps1`.
+5. Run the packaged smoke tests for both editions.
+6. Record both EXE sizes and SHA-256 checksums.
+7. Confirm that `dist` contains only the two intended release executables and their checksums.
 
 ## Automated releases
 
 `.github/workflows/release.yml` publishes a release whenever a version tag is pushed. The tag
-must match the version in `pyproject.toml`, including the `v` prefix.
+must match the versions in both `pyproject.toml` and `native/Cargo.toml`, including the `v` prefix.
 
 ```powershell
-git tag -a v0.4.0 -m "SideScreenUtil v0.4.0"
-git push origin v0.4.0
+git tag -a v0.6.0 -m "SideScreenUtil v0.6.0"
+git push origin v0.6.0
 ```
 
-The Windows runner installs the project, runs Ruff and pytest, builds the one-file executable,
-runs the packaged startup smoke test, writes a SHA-256 checksum, uploads a workflow artifact,
-and creates a GitHub Release containing both files. A version mismatch stops the workflow before
-packaging.
+The Windows runner tests and builds both implementations, runs their packaged smoke tests, writes
+separate SHA-256 checksums, uploads one workflow artifact, and creates a GitHub Release containing
+both executables and both checksum files. A tag or cross-edition version mismatch stops the
+workflow before packaging.

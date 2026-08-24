@@ -27,7 +27,20 @@ Select and configure windows on the primary display, then monitor them in a flex
 ## Requirements
 
 - 64-bit Windows 10 version 1903 or newer, or Windows 11
-- Python 3.10 or newer when running from source
+- Python 3.10 or newer when running the full edition from source
+
+## Choose an edition
+
+Every GitHub Release contains two maintained Windows editions. They implement the same core
+multi-window monitoring and OLED-protection workflow and are updated in parallel.
+
+| Download | Edition | Best for |
+| --- | --- | --- |
+| `SideScreenUtil.exe` | Full compatibility (Python/Qt) | The established implementation and widest compatibility |
+| `SideScreenUtil-native.exe` | Compact native (Rust/Win32) | A sub-megabyte download and much lower idle memory use |
+
+The editions store their settings separately, so they can be installed and tested side by side.
+See [NATIVE_PREVIEW.md](NATIVE_PREVIEW.md) for native build details.
 
 ## Run from source
 
@@ -64,23 +77,28 @@ The included languages are Simplified Chinese and English. Select a language in 
 
 Language packs are JSON files stored in [`assets/i18n`](assets/i18n). The build automatically discovers and bundles every `*.json` file in that directory. See [DEVELOPMENT.md](DEVELOPMENT.md#adding-a-language) for the schema and contribution steps.
 
-## Build the EXE
+## Build the executables
 
 ```powershell
 .\scripts\build.ps1
+.\scripts\build-native.ps1
 ```
 
-The release executable is written to `dist\SideScreenUtil.exe`.
+The release executables are written to `dist\SideScreenUtil.exe` and
+`dist\SideScreenUtil-native.exe`.
 
 Prebuilt Windows executables are available from the project's
-[GitHub Releases](https://github.com/DennyClarkson/SideScreenUtil/releases). Each release also
-includes a SHA-256 checksum file.
+[GitHub Releases](https://github.com/DennyClarkson/SideScreenUtil/releases). Each release contains
+both editions and a separate SHA-256 checksum for each executable.
 
 Smoke tests for the packaged application:
 
 ```powershell
 .\dist\SideScreenUtil.exe --smoke-test
 .\dist\SideScreenUtil.exe --capture-smoke-test
+.\dist\SideScreenUtil-native.exe --smoke-test
+.\dist\SideScreenUtil-native.exe --capture-smoke-test
+.\dist\SideScreenUtil-native.exe --ui-smoke-test
 ```
 
 ## Development checks
