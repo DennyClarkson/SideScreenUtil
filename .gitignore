@@ -10,3 +10,4 @@ dist/
 *.spec
 !SideScreenUtil.spec
 *.log
+native/target/

@@ -66,3 +66,44 @@ jobs:
           path: dist/SideScreenUtil.exe
           if-no-files-found: error
           retention-days: 7
+
+  verify-native-windows:
+    name: Test native slim build on Windows
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Rust
+        shell: pwsh
+        run: rustup toolchain install stable --profile minimal --component rustfmt
+
+      - name: Run native checks
+        shell: pwsh
+        run: |
+          cargo +stable fmt --manifest-path native\Cargo.toml -- --check
+          cargo +stable test --manifest-path native\Cargo.toml --target x86_64-pc-windows-msvc
+
+      - name: Build native executable
+        shell: pwsh
+        run: cargo +stable build --manifest-path native\Cargo.toml --release --target x86_64-pc-windows-msvc
+
+      - name: Smoke-test native executable
+        shell: pwsh
+        run: |
+          $Exe = ".\native\target\x86_64-pc-windows-msvc\release\sidescreenutil-native.exe"
+          foreach ($Argument in "--smoke-test", "--capture-smoke-test", "--ui-smoke-test") {
+            $Process = Start-Process -FilePath $Exe -ArgumentList $Argument -Wait -PassThru
+            if ($Process.ExitCode -ne 0) {
+              throw "Native smoke test '$Argument' failed with exit code $($Process.ExitCode)."
+            }
+          }
+
+      - name: Upload native test artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: SideScreenUtil-native-ci-windows-x64
+          path: native/target/x86_64-pc-windows-msvc/release/sidescreenutil-native.exe
+          if-no-files-found: error
+          retention-days: 7

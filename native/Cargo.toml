@@ -1,0 +1,51 @@
+[package]
+name = "sidescreenutil-native"
+version = "0.6.0"
+edition = "2024"
+license = "MIT"
+publish = false
+build = "build.rs"
+
+[dependencies]
+native-windows-gui = { version = "1.0.13", default-features = false, features = [
+  "color-dialog",
+  "combobox",
+  "cursor",
+  "embed-resource",
+  "frame",
+  "high-dpi",
+  "listbox",
+  "menu",
+  "message-window",
+  "notice",
+  "timer",
+  "trackbar",
+  "tray-notification",
+] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+winapi = { version = "0.3.9", features = [
+  "commctrl",
+  "dwmapi",
+  "errhandlingapi",
+  "libloaderapi",
+  "processthreadsapi",
+  "psapi",
+  "shellapi",
+  "uxtheme",
+  "wingdi",
+  "winnt",
+  "winuser",
+] }
+windows-capture = "2.0.1"
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+incremental = false
+
+[build-dependencies]
+embed-resource = "3.0.11"
