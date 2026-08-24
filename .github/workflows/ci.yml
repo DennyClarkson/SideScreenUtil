@@ -94,16 +94,13 @@ jobs:
         shell: pwsh
         run: |
           $Exe = ".\native\target\x86_64-pc-windows-msvc\release\sidescreenutil-native.exe"
-          foreach ($Argument in "--smoke-test", "--capture-smoke-test", "--ui-smoke-test") {
-            Write-Host "Running native smoke test: $Argument"
-            $Process = Start-Process -FilePath $Exe -ArgumentList $Argument -PassThru
-            if (-not $Process.WaitForExit(45000)) {
-              Stop-Process -Id $Process.Id -Force
-              throw "Native smoke test '$Argument' timed out after 45 seconds."
-            }
-            if ($Process.ExitCode -ne 0) {
-              throw "Native smoke test '$Argument' failed with exit code $($Process.ExitCode)."
-            }
+          $Process = Start-Process -FilePath $Exe -ArgumentList "--binary-smoke-test" -PassThru
+          if (-not $Process.WaitForExit(15000)) {
+            Stop-Process -Id $Process.Id -Force
+            throw "Native binary smoke test timed out after 15 seconds."
+          }
+          if ($Process.ExitCode -ne 0) {
+            throw "Native binary smoke test failed with exit code $($Process.ExitCode)."
           }
 
       - name: Upload native test artifact

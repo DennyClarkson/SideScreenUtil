@@ -32,7 +32,7 @@ if ($Imports -match "(?i)libunwind\.dll") {
     throw "The native executable unexpectedly depends on libunwind.dll."
 }
 
-foreach ($Argument in "--smoke-test", "--capture-smoke-test", "--ui-smoke-test") {
+foreach ($Argument in "--binary-smoke-test", "--smoke-test", "--capture-smoke-test", "--ui-smoke-test") {
     $Process = Start-Process -FilePath $BuiltExe -ArgumentList $Argument -Wait -PassThru
     if ($Process.ExitCode -ne 0) {
         throw "Native smoke test '$Argument' failed with exit code $($Process.ExitCode)."
