@@ -70,6 +70,7 @@ jobs:
   verify-native-windows:
     name: Test native slim build on Windows
     runs-on: windows-latest
+    timeout-minutes: 15
 
     steps:
       - name: Check out source
@@ -94,7 +95,12 @@ jobs:
         run: |
           $Exe = ".\native\target\x86_64-pc-windows-msvc\release\sidescreenutil-native.exe"
           foreach ($Argument in "--smoke-test", "--capture-smoke-test", "--ui-smoke-test") {
-            $Process = Start-Process -FilePath $Exe -ArgumentList $Argument -Wait -PassThru
+            Write-Host "Running native smoke test: $Argument"
+            $Process = Start-Process -FilePath $Exe -ArgumentList $Argument -PassThru
+            if (-not $Process.WaitForExit(45000)) {
+              Stop-Process -Id $Process.Id -Force
+              throw "Native smoke test '$Argument' timed out after 45 seconds."
+            }
             if ($Process.ExitCode -ne 0) {
               throw "Native smoke test '$Argument' failed with exit code $($Process.ExitCode)."
             }
