@@ -1,15 +1,43 @@
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $VenvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
+$ReleaseExe = Join-Path $ProjectRoot "dist\SideScreenUtil.exe"
+$PreviousExe = Join-Path $ProjectRoot "dist\SideScreenUtil.previous.exe"
 if (-not (Test-Path -LiteralPath $VenvPython)) {
     throw "Virtual environment not found. Run .\scripts\setup.ps1 first."
 }
+$RunningRelease = Get-Process -Name "SideScreenUtil" -ErrorAction SilentlyContinue | Where-Object {
+    try {
+        $_.Path -eq $ReleaseExe
+    } catch {
+        $false
+    }
+}
+if ($RunningRelease) {
+    throw "SideScreenUtil is running from dist. Close it before rebuilding."
+}
+$BuildSucceeded = $false
 Push-Location $ProjectRoot
 try {
-    & $VenvPython -m PyInstaller --noconfirm --clean --windowed --onefile --optimize 2 --name SideScreenUtil --icon assets\sidescreen.ico --add-data "assets\sidescreen-logo-app.png;assets" --add-data "assets\sidescreen.ico;assets" --add-data "assets\i18n;assets\i18n" --add-binary "src\sidescreen\native\windows_capture.pyd;sidescreen\native" --add-data "src\sidescreen\native\WINDOWS_CAPTURE_LICENSE.txt;licenses" --exclude-module cv2 --exclude-module windows_capture --exclude-module PySide6.QtNetwork --exclude-module numpy.testing --exclude-module tkinter --exclude-module unittest --exclude-module pydoc --exclude-module doctest src\sidescreen\app.py
+    if (Test-Path -LiteralPath $PreviousExe) {
+        Remove-Item -LiteralPath $PreviousExe
+    }
+    if (Test-Path -LiteralPath $ReleaseExe) {
+        Move-Item -LiteralPath $ReleaseExe -Destination $PreviousExe
+    }
+    & $VenvPython -m PyInstaller --noconfirm --clean SideScreenUtil.spec
     if ($LASTEXITCODE -ne 0) {
         throw "Build failed with exit code $LASTEXITCODE."
     }
+    $BuildSucceeded = $true
+} catch {
+    if (-not (Test-Path -LiteralPath $ReleaseExe) -and (Test-Path -LiteralPath $PreviousExe)) {
+        Move-Item -LiteralPath $PreviousExe -Destination $ReleaseExe
+    }
+    throw
 } finally {
+    if ($BuildSucceeded -and (Test-Path -LiteralPath $PreviousExe)) {
+        Remove-Item -LiteralPath $PreviousExe
+    }
     Pop-Location
 }

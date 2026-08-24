@@ -102,7 +102,7 @@ Background reading:
 - [Impact of long-term stress on the light output of a WRGB AMOLED display](https://researchportal.hkust.edu.hk/en/publications/impact-of-long-term-stress-on-the-light-output-of-a-wrgb-amoled-d/)
 - [OpenCV Canny edge detector principles](https://docs.opencv.org/4.10.0/da/d5c/tutorial_canny_detector.html)
 
-The contour implementation uses a lightweight NumPy gradient and adjustable dilation. OpenCV is not included in the final executable.
+The contour implementation uses a lightweight, one-sided NumPy luminance gradient. Adjustable contour width expands only toward equally bright or brighter pixels, keeping strokes inside bright objects and text instead of bleeding into the black background. OpenCV is not included in the final executable.
 
 ## Known limitations
 

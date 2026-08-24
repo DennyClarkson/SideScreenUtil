@@ -33,3 +33,18 @@ def test_layout_edit_mode_blocks_pointer_suppression() -> None:
     overlay.finish_layout_editing(False)
     overlay.deleteLater()
     application.processEvents()
+
+
+def test_empty_sources_clear_layout_and_keep_black_canvas() -> None:
+    application = QApplication.instance() or QApplication([])
+    overlay = MonitorOverlay()
+    overlay.set_layout({42: QRectF(0.1, 0.1, 0.5, 0.5)}, animate=False)
+    overlay.set_frame(42, np.zeros((2, 4, 4), dtype=np.uint8), 4, 2)
+
+    overlay.set_sources([])
+
+    assert overlay.frame_sizes == {}
+    assert overlay._layout_target == {}
+    assert not overlay.start_layout_editing()
+    overlay.deleteLater()
+    application.processEvents()

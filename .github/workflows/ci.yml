@@ -1,20 +1,26 @@
-name: Release
+name: CI
 
 on:
   push:
-    tags:
-      - "v*"
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  release:
-    name: Build and publish Windows release
+  verify-windows:
+    name: Test and package on Windows
     runs-on: windows-latest
 
     steps:
-      - name: Check out the tagged source
+      - name: Check out source
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -23,14 +29,6 @@ jobs:
           python-version: "3.12"
           architecture: "x64"
           cache: "pip"
-
-      - name: Verify tag and project version
-        shell: pwsh
-        run: |
-          $Version = & python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])"
-          if ($env:GITHUB_REF_NAME -ne "v$Version") {
-            throw "Tag $env:GITHUB_REF_NAME does not match project version v$Version."
-          }
 
       - name: Install dependencies
         shell: pwsh
@@ -45,7 +43,7 @@ jobs:
           .\.venv\Scripts\python.exe -m ruff check src tests
           .\.venv\Scripts\python.exe -m pytest -q
 
-      - name: Build executable
+      - name: Build optimized executable
         shell: pwsh
         run: .\scripts\build.ps1
 
@@ -61,29 +59,10 @@ jobs:
             throw "Packaged capture smoke test failed with exit code $($CaptureProcess.ExitCode)."
           }
 
-      - name: Write SHA-256 checksum
-        shell: pwsh
-        run: |
-          $Hash = (Get-FileHash .\dist\SideScreenUtil.exe -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$Hash  SideScreenUtil.exe" | Set-Content .\dist\SideScreenUtil.exe.sha256 -Encoding ascii
-
-      - name: Upload workflow artifact
+      - name: Upload packaged test artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SideScreenUtil-${{ github.ref_name }}-windows-x64
-          path: |
-            dist/SideScreenUtil.exe
-            dist/SideScreenUtil.exe.sha256
+          name: SideScreenUtil-ci-windows-x64
+          path: dist/SideScreenUtil.exe
           if-no-files-found: error
-
-      - name: Create GitHub Release
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create $env:GITHUB_REF_NAME `
-            .\dist\SideScreenUtil.exe `
-            .\dist\SideScreenUtil.exe.sha256 `
-            --title "SideScreenUtil $env:GITHUB_REF_NAME" `
-            --generate-notes `
-            --verify-tag
+          retention-days: 7

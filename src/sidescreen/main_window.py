@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import QRect, QRectF, Qt, QTimer
+from PySide6.QtCore import QRect, QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QCloseEvent, QColor, QCursor, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -20,8 +20,8 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QStackedWidget,
     QSystemTrayIcon,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -46,52 +46,74 @@ WINDOW_ROLE = Qt.ItemDataRole.UserRole
 
 
 APP_STYLE = """
-QMainWindow, QWidget#root { background: #070b14; color: #dce8f7; }
-QWidget { font-family: "Segoe UI", "Microsoft YaHei UI"; font-size: 13px; }
-QFrame#header, QFrame#card { background: #0d1422; border: 1px solid #1b2a40; border-radius: 14px; }
-QLabel#title { font-size: 24px; font-weight: 700; color: #f4fbff; }
-QLabel#subtitle, QLabel[class="muted"] { color: #7f91aa; }
-QLabel#section { color: #7dd3fc; font-size: 12px; font-weight: 700; }
-QComboBox, QSpinBox, QDoubleSpinBox, QListWidget {
-  background: #080e19; border: 1px solid #25344d; border-radius: 8px;
-  padding: 7px; color: #e6f2ff; selection-background-color: #164e63;
+QMainWindow, QWidget#root { background: #202020; color: #ffffff; }
+QWidget {
+  font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI";
+  font-size: 13px;
 }
-QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover, QListWidget:hover { border-color: #3a5978; }
-QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus { border-color: #22d3ee; }
-QListWidget::item { padding: 7px 4px; border-radius: 6px; }
-QListWidget::item:hover { background: #111d2e; }
-QListWidget::item:selected { background: #123349; color: white; }
+QFrame#titleBar { background: #202020; border-bottom: 1px solid #292929; }
+QFrame#navigationPane { background: #202020; border: none; }
+QFrame#settingCard { background: #2b2b2b; border: 1px solid #3a3a3a; border-radius: 7px; }
+QLabel#title { font-size: 17px; font-weight: 600; color: #ffffff; }
+QLabel#pageTitle { font-size: 28px; font-weight: 600; color: #ffffff; }
+QLabel#subtitle, QLabel[class="muted"] { color: #b8b8b8; }
+QLabel#section { color: #ffffff; font-size: 14px; font-weight: 600; }
+QComboBox, QSpinBox, QDoubleSpinBox, QListWidget#sourceList {
+  background: #313131; border: 1px solid #474747; border-radius: 4px;
+  padding: 6px; color: #ffffff; selection-background-color: #404040;
+}
+QComboBox { padding-right: 34px; }
+QComboBox::drop-down {
+  subcontrol-origin: padding; subcontrol-position: center right;
+  width: 32px; border: none; background: transparent;
+}
+QComboBox::down-arrow { image: url("__CHEVRON_DOWN__"); width: 10px; height: 6px; }
+QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover,
+QListWidget#sourceList:hover { border-color: #666666; }
+QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus { border-color: #60cdff; }
+QListWidget#sourceList::item { padding: 7px 5px; border-radius: 3px; }
+QListWidget#sourceList::item:hover { background: #383838; }
+QListWidget#sourceList::item:selected { background: #404040; color: white; }
+QListWidget#navigation {
+  background: transparent; border: none; outline: none; padding: 0;
+}
+QListWidget#navigation::item {
+  min-height: 40px; padding: 0 12px; margin: 2px 0; border-radius: 4px;
+  color: #e6e6e6; border-left: 3px solid transparent;
+}
+QListWidget#navigation::item:hover { background: #2d2d2d; }
+QListWidget#navigation::item:selected {
+  background: #353535; color: #ffffff; border-left-color: #60cdff;
+}
 QPushButton {
-  background: #132238; border: 1px solid #29415f; border-radius: 8px;
-  padding: 8px 13px; color: #dbeafe;
+  background: #323232; border: 1px solid #4a4a4a; border-radius: 4px;
+  padding: 7px 14px; color: #ffffff;
 }
-QPushButton:hover { background: #19304b; border-color: #3b82a0; }
-QPushButton:pressed { background: #0f1b2d; }
-QPushButton#primary { background: #0891b2; border-color: #22d3ee; color: white; font-weight: 700; }
-QPushButton#primary:hover { background: #06a7c8; }
-QPushButton:disabled { color: #526177; background: #0d1420; border-color: #1b2839; }
-QTabWidget::pane { border: 1px solid #1b2a40; border-radius: 10px; background: #0b111d; top: -1px; }
-QTabBar::tab {
-  background: #0b111d; color: #71839d; padding: 9px 18px;
-  border-bottom: 2px solid transparent;
+QPushButton:hover { background: #3b3b3b; border-color: #666666; }
+QPushButton:pressed { background: #292929; }
+QPushButton#primary {
+  background: #60cdff; border-color: #60cdff; color: #102027; font-weight: 600;
 }
-QTabBar::tab:selected { color: #67e8f9; border-bottom-color: #22d3ee; }
+QPushButton#primary:hover { background: #76d5ff; border-color: #76d5ff; }
+QPushButton:disabled { color: #777777; background: #292929; border-color: #373737; }
+QPushButton#iconButton { padding: 0; min-width: 34px; background: #323232; }
+QPushButton#iconButton:hover { background: #3b3b3b; }
 QLabel#status {
-  background: #091827; border: 1px solid #164e63; border-radius: 9px;
-  padding: 10px; color: #a5f3fc;
+  background: #292929; border: 1px solid #3a3a3a; border-radius: 5px;
+  padding: 9px 12px; color: #d6d6d6;
 }
-QToolTip { background: #111827; color: white; border: 1px solid #334155; padding: 5px; }
-QCheckBox { color: #dbeafe; spacing: 9px; }
-QCheckBox::indicator { width: 34px; height: 18px; border-radius: 9px; background: #25344d; }
-QCheckBox::indicator:checked { background: #22d3ee; border: 1px solid #67e8f9; }
-QSlider::groove:horizontal { height: 5px; background: #1d2c42; border-radius: 2px; }
-QSlider::sub-page:horizontal { background: #22d3ee; border-radius: 2px; }
+QToolTip { background: #2b2b2b; color: white; border: 1px solid #555555; padding: 5px; }
+QCheckBox { color: #ffffff; spacing: 9px; }
+QCheckBox::indicator { width: 34px; height: 18px; border-radius: 9px; background: #555555; }
+QCheckBox::indicator:checked { background: #60cdff; border: 1px solid #8addff; }
+QSlider::groove:horizontal { height: 4px; background: #555555; border-radius: 2px; }
+QSlider::sub-page:horizontal { background: #60cdff; border-radius: 2px; }
 QSlider::handle:horizontal {
-  background: #f8fafc; border: 2px solid #22d3ee; width: 16px; height: 16px;
-  margin: -7px 0; border-radius: 9px;
+  background: #ffffff; border: 3px solid #60cdff; width: 14px; height: 14px;
+  margin: -6px 0; border-radius: 10px;
 }
-QSlider::handle:horizontal:hover { background: #cffafe; }
-QLabel[class="sliderValue"] { color: #a5f3fc; font-family: "Cascadia Mono", "Consolas"; }
+QSlider::handle:horizontal:hover { background: #ffffff; border-color: #8addff; }
+QLabel[class="sliderValue"] { color: #d0d0d0; font-family: "Cascadia Mono", "Consolas"; }
 """
 
 
@@ -99,9 +121,10 @@ class MainWindow(QMainWindow):
     def __init__(self, store: SettingsStore | None = None) -> None:
         super().__init__()
         self.setObjectName("main")
-        self.setMinimumSize(940, 650)
-        self.resize(1040, 730)
-        self.setStyleSheet(APP_STYLE)
+        self.setMinimumSize(960, 680)
+        self.resize(1080, 760)
+        chevron = str(asset_path("chevron-down.svg")).replace("\\", "/")
+        self.setStyleSheet(APP_STYLE.replace("__CHEVRON_DOWN__", chevron))
         self._store = store or SettingsStore()
         self._settings = self._store.load()
         set_language(self._settings.language)
@@ -155,32 +178,32 @@ class MainWindow(QMainWindow):
         root_widget = QWidget(self)
         root_widget.setObjectName("root")
         root = QVBoxLayout(root_widget)
-        root.setContentsMargins(18, 18, 18, 18)
-        root.setSpacing(13)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
         header = QFrame()
-        header.setObjectName("header")
+        header.setObjectName("titleBar")
+        header.setFixedHeight(64)
         header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(16, 12, 16, 12)
+        header_layout.setContentsMargins(18, 8, 18, 8)
+        header_layout.setSpacing(10)
         logo = QLabel()
         logo.setPixmap(
             QPixmap(str(asset_path("sidescreen-logo-app.png"))).scaled(
-                52,
-                52,
+                34,
+                34,
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
         )
-        heading = QVBoxLayout()
         title = QLabel("SideScreenUtil")
         title.setObjectName("title")
-        subtitle = QLabel(tr("app.subtitle"))
-        subtitle.setObjectName("subtitle")
-        heading.addWidget(title)
-        heading.addWidget(subtitle)
         header_layout.addWidget(logo)
-        header_layout.addLayout(heading)
+        header_layout.addWidget(title)
         header_layout.addStretch()
+        self.header_state = QLabel(tr("state.idle"))
+        self.header_state.setStyleSheet("color: #a0a0a0; font-weight: 600;")
+        header_layout.addWidget(self.header_state)
         language_label = QLabel(tr("header.language"))
         language_label.setProperty("class", "muted")
         self.language_combo = QComboBox()
@@ -190,34 +213,130 @@ class MainWindow(QMainWindow):
         self._set_combo_data(self.language_combo, current_language())
         header_layout.addWidget(language_label)
         header_layout.addWidget(self.language_combo)
-        self.header_state = QLabel(tr("state.idle"))
-        self.header_state.setStyleSheet("color: #64748b; font-weight: 600;")
-        header_layout.addWidget(self.header_state)
         root.addWidget(header)
 
-        body = QHBoxLayout()
-        body.setSpacing(13)
-        source_card = QFrame()
-        source_card.setObjectName("card")
-        source_card.setFixedWidth(350)
-        source_layout = QVBoxLayout(source_card)
-        source_layout.setContentsMargins(15, 15, 15, 15)
-        source_layout.setSpacing(10)
-        source_title = QLabel(tr("source.section"))
-        source_title.setObjectName("section")
-        source_layout.addWidget(source_title)
+        body_widget = QWidget()
+        body = QHBoxLayout(body_widget)
+        body.setContentsMargins(12, 8, 18, 14)
+        body.setSpacing(22)
+
+        navigation_pane = QFrame()
+        navigation_pane.setObjectName("navigationPane")
+        navigation_pane.setFixedWidth(220)
+        navigation_layout = QVBoxLayout(navigation_pane)
+        navigation_layout.setContentsMargins(0, 12, 0, 0)
+        navigation_layout.setSpacing(10)
+        self.navigation = QListWidget()
+        self.navigation.setObjectName("navigation")
+        self.navigation.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.navigation.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.navigation.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._page_titles = [
+            tr("tabs.monitor"),
+            tr("tabs.layout"),
+            tr("tabs.filters"),
+            tr("tabs.protection"),
+        ]
+        self._page_descriptions = [
+            tr("page.monitor_description"),
+            tr("page.layout_description"),
+            tr("page.filters_description"),
+            tr("page.protection_description"),
+        ]
+        for label in self._page_titles:
+            item = QListWidgetItem(label)
+            item.setSizeHint(QSize(0, 42))
+            self.navigation.addItem(item)
+        navigation_layout.addWidget(self.navigation)
+        navigation_layout.addStretch()
+        keyboard_hint = QLabel("Ctrl+Alt+L\n" + tr("layout.keyboard_hint"))
+        keyboard_hint.setProperty("class", "muted")
+        keyboard_hint.setContentsMargins(12, 0, 8, 8)
+        navigation_layout.addWidget(keyboard_hint)
+        body.addWidget(navigation_pane)
+
+        workspace = QWidget()
+        workspace_layout = QVBoxLayout(workspace)
+        workspace_layout.setContentsMargins(0, 10, 0, 0)
+        workspace_layout.setSpacing(10)
+        self.page_title = QLabel()
+        self.page_title.setObjectName("pageTitle")
+        self.page_description = QLabel()
+        self.page_description.setProperty("class", "muted")
+        self.page_description.setWordWrap(True)
+        workspace_layout.addWidget(self.page_title)
+        workspace_layout.addWidget(self.page_description)
+
+        self.pages = QStackedWidget()
+        self.pages.addWidget(self._build_source_page())
+        self.pages.addWidget(self._build_layout_tab())
+        self.pages.addWidget(self._build_filter_tab())
+        self.pages.addWidget(self._build_protection_tab())
+        workspace_layout.addWidget(self.pages, 1)
+
+        self.status_label = QLabel(tr("status.ready"))
+        self.status_label.setObjectName("status")
+        self.status_label.setWordWrap(True)
+        workspace_layout.addWidget(self.status_label)
+        controls = QHBoxLayout()
+        controls.setSpacing(8)
+        self.start_button = QPushButton(tr("action.start"))
+        self.start_button.setObjectName("primary")
+        self.start_button.setMinimumHeight(38)
+        self.pause_button = QPushButton(tr("action.pause"))
+        self.pause_button.setMinimumHeight(38)
+        self.pause_button.setEnabled(False)
+        controls.addWidget(self.start_button, 1)
+        controls.addWidget(self.pause_button)
+        workspace_layout.addLayout(controls)
+        body.addWidget(workspace, 1)
+        root.addWidget(body_widget, 1)
+        self.setCentralWidget(root_widget)
+
+        self.navigation.currentRowChanged.connect(self._navigate_page)
+        self.navigation.setCurrentRow(0)
+
+    def _build_source_page(self) -> QWidget:
+        page = QWidget()
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 8, 0, 0)
+        page_layout.setSpacing(10)
+
+        display_card = QFrame()
+        display_card.setObjectName("settingCard")
+        display_layout = QVBoxLayout(display_card)
+        display_layout.setContentsMargins(16, 14, 16, 14)
+        display_layout.setSpacing(8)
+        display_title = QLabel(tr("source.target_display"))
+        display_title.setObjectName("section")
+        display_layout.addWidget(display_title)
         screen_row = QHBoxLayout()
         self.screen_combo = QComboBox()
-        refresh_screens = QPushButton(tr("common.refresh"))
+        refresh_screens = QPushButton()
+        refresh_screens.setObjectName("iconButton")
+        refresh_screens.setIcon(QIcon(str(asset_path("refresh.svg"))))
+        refresh_screens.setIconSize(QSize(16, 16))
+        refresh_screens.setFixedSize(34, 34)
         refresh_screens.setToolTip(tr("source.refresh_screens_tip"))
         screen_row.addWidget(self.screen_combo, 1)
         screen_row.addWidget(refresh_screens)
-        source_layout.addLayout(screen_row)
+        display_layout.addLayout(screen_row)
+        page_layout.addWidget(display_card)
+
+        source_card = QFrame()
+        source_card.setObjectName("settingCard")
+        source_layout = QVBoxLayout(source_card)
+        source_layout.setContentsMargins(16, 14, 16, 14)
+        source_layout.setSpacing(8)
+        source_title = QLabel(tr("source.windows"))
+        source_title.setObjectName("section")
+        source_layout.addWidget(source_title)
         hint = QLabel(tr("source.hint"))
         hint.setWordWrap(True)
         hint.setProperty("class", "muted")
         source_layout.addWidget(hint)
         self.window_list = QListWidget()
+        self.window_list.setObjectName("sourceList")
         self.window_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.window_list.setAlternatingRowColors(False)
         self.window_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -231,45 +350,30 @@ class MainWindow(QMainWindow):
         source_buttons.addWidget(select_all)
         source_buttons.addWidget(clear_all)
         source_layout.addLayout(source_buttons)
-        body.addWidget(source_card)
-
-        workspace = QFrame()
-        workspace.setObjectName("card")
-        workspace_layout = QVBoxLayout(workspace)
-        workspace_layout.setContentsMargins(14, 14, 14, 14)
-        self.tabs = QTabWidget()
-        self.tabs.addTab(self._build_layout_tab(), tr("tabs.layout"))
-        self.tabs.addTab(self._build_filter_tab(), tr("tabs.filters"))
-        self.tabs.addTab(self._build_protection_tab(), tr("tabs.protection"))
-        workspace_layout.addWidget(self.tabs)
-        body.addWidget(workspace, 1)
-        root.addLayout(body, 1)
-
-        controls = QHBoxLayout()
-        self.start_button = QPushButton(tr("action.start"))
-        self.start_button.setObjectName("primary")
-        self.start_button.setMinimumHeight(44)
-        self.pause_button = QPushButton(tr("action.pause"))
-        self.pause_button.setMinimumHeight(44)
-        self.pause_button.setEnabled(False)
-        controls.addWidget(self.start_button, 1)
-        controls.addWidget(self.pause_button)
-        root.addLayout(controls)
-        self.status_label = QLabel(tr("status.ready"))
-        self.status_label.setObjectName("status")
-        self.status_label.setWordWrap(True)
-        root.addWidget(self.status_label)
-        self.setCentralWidget(root_widget)
+        page_layout.addWidget(source_card, 1)
 
         refresh_screens.clicked.connect(self.refresh_screens)
         refresh_windows.clicked.connect(self.refresh_windows)
         select_all.clicked.connect(lambda: self._set_all_windows(Qt.CheckState.Checked))
         clear_all.clicked.connect(lambda: self._set_all_windows(Qt.CheckState.Unchecked))
+        return page
+
+    def _navigate_page(self, index: int) -> None:
+        if not 0 <= index < self.pages.count():
+            return
+        self.pages.setCurrentIndex(index)
+        self.page_title.setText(self._page_titles[index])
+        self.page_description.setText(self._page_descriptions[index])
 
     def _build_layout_tab(self) -> QWidget:
         tab = QWidget()
-        layout = QVBoxLayout(tab)
-        layout.setContentsMargins(14, 14, 14, 14)
+        outer = QVBoxLayout(tab)
+        outer.setContentsMargins(0, 8, 0, 0)
+        card = QFrame()
+        card.setObjectName("settingCard")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
         row = QHBoxLayout()
         row.addWidget(QLabel(tr("layout.type")))
         self.layout_combo = QComboBox()
@@ -295,14 +399,20 @@ class MainWindow(QMainWindow):
         help_label.setWordWrap(True)
         help_label.setProperty("class", "muted")
         layout.addWidget(help_label)
+        outer.addWidget(card, 1)
         regenerate.clicked.connect(self._regenerate_layout)
         return tab
 
     def _build_filter_tab(self) -> QWidget:
         tab = QWidget()
-        form = QFormLayout(tab)
+        outer = QVBoxLayout(tab)
+        outer.setContentsMargins(0, 8, 0, 0)
+        card = QFrame()
+        card.setObjectName("settingCard")
+        form = QFormLayout(card)
         form.setContentsMargins(18, 18, 18, 18)
-        form.setSpacing(14)
+        form.setHorizontalSpacing(28)
+        form.setVerticalSpacing(18)
         self.filter_combo = QComboBox()
         for key, label_key in FILTER_LABEL_KEYS.items():
             self.filter_combo.addItem(tr(label_key), key)
@@ -326,13 +436,20 @@ class MainWindow(QMainWindow):
         explanation.setWordWrap(True)
         explanation.setProperty("class", "muted")
         form.addRow("", explanation)
+        outer.addWidget(card)
+        outer.addStretch()
         return tab
 
     def _build_protection_tab(self) -> QWidget:
         tab = QWidget()
-        form = QFormLayout(tab)
+        outer = QVBoxLayout(tab)
+        outer.setContentsMargins(0, 8, 0, 0)
+        card = QFrame()
+        card.setObjectName("settingCard")
+        form = QFormLayout(card)
         form.setContentsMargins(18, 18, 18, 18)
-        form.setSpacing(14)
+        form.setHorizontalSpacing(28)
+        form.setVerticalSpacing(18)
         self.scale_spin = ValueSlider(
             20, 92, lambda value: tr("common.percent", value=value)
         )
@@ -366,6 +483,8 @@ class MainWindow(QMainWindow):
         form.addRow(tr("protection.blank_duration"), self.blank_seconds_spin)
         form.addRow(tr("protection.fps"), self.fps_spin)
         form.addRow(tr("protection.resolution_limit"), self.limit_resolution_check)
+        outer.addWidget(card)
+        outer.addStretch()
         return tab
 
     def _build_tray(self) -> None:
@@ -537,6 +656,9 @@ class MainWindow(QMainWindow):
     def _apply_window_selection(self) -> None:
         windows = self._selected_windows()
         if self._active:
+            if not windows and self._overlay.layout_editing:
+                self._overlay.finish_layout_editing(False)
+                self.layout_edit_button.setText(tr("layout.edit"))
             self._captures.sync_windows(
                 windows,
                 self.fps_spin.value(),
@@ -545,9 +667,15 @@ class MainWindow(QMainWindow):
             )
             self._overlay.set_sources([window.hwnd for window in windows])
             self._overlay.set_source_titles({window.hwnd: window.title for window in windows})
+            self.layout_edit_button.setEnabled(bool(windows))
         self._regenerate_layout(selection_changed=True)
         if self._active:
-            self.status_label.setText(tr("status.live_switch", count=len(windows)))
+            if windows:
+                self.header_state.setText(tr("state.running", count=len(windows)))
+                self.status_label.setText(tr("status.live_switch", count=len(windows)))
+            else:
+                self.header_state.setText(tr("state.black_only"))
+                self.status_label.setText(tr("status.black_only"))
 
     def _generate_layout(self, mode: str, windows: list[WindowInfo]) -> dict[int, QRectF]:
         keys = [window.hwnd for window in windows]
@@ -736,11 +864,6 @@ class MainWindow(QMainWindow):
                 self, tr("dialog.cannot_start"), tr("dialog.select_screen")
             )
             return
-        if not windows:
-            QMessageBox.warning(
-                self, tr("dialog.cannot_start"), tr("dialog.select_window")
-            )
-            return
         settings = self._settings_from_controls()
         self._settings = settings
         self._persist_current_settings()
@@ -760,13 +883,17 @@ class MainWindow(QMainWindow):
         )
         self.start_button.setText(tr("action.stop"))
         self.pause_button.setEnabled(True)
-        self.layout_edit_button.setEnabled(True)
+        self.layout_edit_button.setEnabled(bool(windows))
         self.pause_button.setText(tr("action.pause"))
         self._tray_pause_action.setEnabled(True)
         self._tray_pause_action.setText(tr("tray.pause"))
-        self.header_state.setText(tr("state.running", count=len(windows)))
-        self.header_state.setStyleSheet("color: #22d3ee; font-weight: 700;")
-        self.status_label.setText(tr("status.starting"))
+        self.header_state.setText(
+            tr("state.running", count=len(windows)) if windows else tr("state.black_only")
+        )
+        self.header_state.setStyleSheet("color: #60cdff; font-weight: 600;")
+        self.status_label.setText(
+            tr("status.starting") if windows else tr("status.black_only")
+        )
         self._check_pointer()
 
     def stop_mode(self, status: str | None = None) -> None:
@@ -783,7 +910,7 @@ class MainWindow(QMainWindow):
         self._tray_pause_action.setEnabled(False)
         self._tray_pause_action.setText(tr("tray.pause"))
         self.header_state.setText(tr("state.idle"))
-        self.header_state.setStyleSheet("color: #64748b; font-weight: 600;")
+        self.header_state.setStyleSheet("color: #a0a0a0; font-weight: 600;")
         self.status_label.setText(status or tr("status.stopped"))
         QTimer.singleShot(500, trim_unused_working_set)
 
@@ -802,8 +929,11 @@ class MainWindow(QMainWindow):
         else:
             self.pause_button.setText(tr("action.pause"))
             self._tray_pause_action.setText(tr("tray.pause"))
+            windows = self._selected_windows()
             self.header_state.setText(
-                tr("state.running", count=len(self._selected_windows()))
+                tr("state.running", count=len(windows))
+                if windows
+                else tr("state.black_only")
             )
             self._check_pointer()
 
@@ -824,10 +954,14 @@ class MainWindow(QMainWindow):
     def _backends_changed(self, summary: str) -> None:
         if self._active:
             count = len(self._captures.window_ids)
-            self.status_label.setText(
-                tr("status.backends", count=count, summary=summary)
-            )
-            self.header_state.setText(tr("state.running", count=count))
+            if count:
+                self.status_label.setText(
+                    tr("status.backends", count=count, summary=summary)
+                )
+                self.header_state.setText(tr("state.running", count=count))
+            else:
+                self.status_label.setText(tr("status.black_only"))
+                self.header_state.setText(tr("state.black_only"))
 
     def _capture_warning(self, message: str) -> None:
         self.status_label.setText(message)
@@ -842,7 +976,11 @@ class MainWindow(QMainWindow):
                 break
         self.window_list.blockSignals(False)
         self._apply_window_selection()
-        self.status_label.setText(tr("status.source_closed"))
+        self.status_label.setText(
+            tr("status.source_closed")
+            if self._selected_windows()
+            else tr("status.source_closed_black")
+        )
 
     def _screen_removed(self, removed: object) -> None:
         if self._active_screen is removed:

@@ -80,28 +80,38 @@ def _grayscale(frame: np.ndarray) -> np.ndarray:
 
 
 def _edge_map(gray: np.ndarray, threshold: int, thickness: int = 2) -> np.ndarray:
-    """Return antialiased, thickened luminance contours suitable for small text."""
+    """Return antialiased contours that expand only into the brighter region."""
     source = gray.astype(np.int16)
-    horizontal = np.zeros_like(source)
-    vertical = np.zeros_like(source)
-    diagonal_a = np.zeros_like(source)
-    diagonal_b = np.zeros_like(source)
-    horizontal[:, 1:-1] = np.abs(source[:, 2:] - source[:, :-2])
-    vertical[1:-1, :] = np.abs(source[2:, :] - source[:-2, :])
-    diagonal_a[1:-1, 1:-1] = np.abs(source[2:, 2:] - source[:-2, :-2])
-    diagonal_b[1:-1, 1:-1] = np.abs(source[2:, :-2] - source[:-2, 2:])
-    magnitude = np.maximum.reduce((horizontal, vertical, diagonal_a, diagonal_b))
+    neighbor_minimum = source.copy()
+    neighbor_minimum[1:, :] = np.minimum(neighbor_minimum[1:, :], source[:-1, :])
+    neighbor_minimum[:-1, :] = np.minimum(neighbor_minimum[:-1, :], source[1:, :])
+    neighbor_minimum[:, 1:] = np.minimum(neighbor_minimum[:, 1:], source[:, :-1])
+    neighbor_minimum[:, :-1] = np.minimum(neighbor_minimum[:, :-1], source[:, 1:])
+    neighbor_minimum[1:, 1:] = np.minimum(neighbor_minimum[1:, 1:], source[:-1, :-1])
+    neighbor_minimum[:-1, :-1] = np.minimum(neighbor_minimum[:-1, :-1], source[1:, 1:])
+    neighbor_minimum[1:, :-1] = np.minimum(neighbor_minimum[1:, :-1], source[:-1, 1:])
+    neighbor_minimum[:-1, 1:] = np.minimum(neighbor_minimum[:-1, 1:], source[1:, :-1])
+    magnitude = source - neighbor_minimum
 
-    # A soft ramp retains antialiasing and character interiors instead of turning
-    # small glyphs into disconnected binary speckles.
+    # The one-sided gradient places the contour on the brighter side of a boundary.
+    # A soft ramp keeps antialiased text strokes connected instead of producing
+    # binary speckles.
     cutoff = max(4, int(threshold))
     edges = np.clip((magnitude.astype(np.float32) - cutoff) * 4.2, 0, 255).astype(np.uint8)
     for _ in range(max(0, min(4, int(thickness)) - 1)):
         grown = edges.copy()
-        grown[1:, :] = np.maximum(grown[1:, :], edges[:-1, :])
-        grown[:-1, :] = np.maximum(grown[:-1, :], edges[1:, :])
-        grown[:, 1:] = np.maximum(grown[:, 1:], edges[:, :-1])
-        grown[:, :-1] = np.maximum(grown[:, :-1], edges[:, 1:])
+        grown[1:, :] = np.maximum(
+            grown[1:, :], np.where(source[1:, :] >= source[:-1, :], edges[:-1, :], 0)
+        )
+        grown[:-1, :] = np.maximum(
+            grown[:-1, :], np.where(source[:-1, :] >= source[1:, :], edges[1:, :], 0)
+        )
+        grown[:, 1:] = np.maximum(
+            grown[:, 1:], np.where(source[:, 1:] >= source[:, :-1], edges[:, :-1], 0)
+        )
+        grown[:, :-1] = np.maximum(
+            grown[:, :-1], np.where(source[:, :-1] >= source[:, 1:], edges[:, 1:], 0)
+        )
         edges = grown
     return edges
 
