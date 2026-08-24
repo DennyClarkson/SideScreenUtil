@@ -4,16 +4,16 @@ use std::f32::consts::TAU;
 use std::mem::{size_of, zeroed};
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 use native_windows_gui as nwg;
 use winapi::shared::minwindef::DWORD;
-use winapi::shared::windef::{HBRUSH, HWND, POINT, RECT};
+use winapi::shared::windef::{HBITMAP, HBRUSH, HDC, HGDIOBJ, HWND, POINT, RECT};
 use winapi::um::wingdi::{
-    BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreatePen, CreateSolidBrush, DIB_RGB_COLORS,
-    DeleteObject, HALFTONE, PS_SOLID, Rectangle, SelectObject, SetBkMode, SetStretchBltMode,
-    SetTextColor, StretchDIBits, TRANSPARENT,
+    BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC,
+    CreatePen, CreateSolidBrush, DIB_RGB_COLORS, DeleteDC, DeleteObject, HALFTONE, PS_SOLID,
+    Rectangle, SRCCOPY, SelectObject, SetBkMode, SetStretchBltMode, SetTextColor, StretchDIBits,
+    TRANSPARENT,
 };
 use winapi::um::winuser::{
     DT_CENTER, DT_SINGLELINE, DT_VCENTER, DrawTextW, FillRect, GetClientRect, GetCursorPos,
@@ -32,6 +32,67 @@ enum EditAction {
     Resize,
 }
 
+#[derive(Default)]
+struct BackBuffer {
+    dc: HDC,
+    bitmap: HBITMAP,
+    previous: HGDIOBJ,
+    width: i32,
+    height: i32,
+}
+
+impl BackBuffer {
+    fn prepare(&mut self, target: HDC, width: i32, height: i32) -> Option<HDC> {
+        if width <= 0 || height <= 0 {
+            return None;
+        }
+        if self.dc.is_null() || self.width != width || self.height != height {
+            self.release();
+            unsafe {
+                self.dc = CreateCompatibleDC(target);
+                if self.dc.is_null() {
+                    return None;
+                }
+                self.bitmap = CreateCompatibleBitmap(target, width, height);
+                if self.bitmap.is_null() {
+                    DeleteDC(self.dc);
+                    self.dc = std::ptr::null_mut();
+                    return None;
+                }
+                self.previous = SelectObject(self.dc, self.bitmap as _);
+            }
+            self.width = width;
+            self.height = height;
+        }
+        Some(self.dc)
+    }
+
+    fn release(&mut self) {
+        unsafe {
+            if !self.dc.is_null() {
+                if !self.previous.is_null() {
+                    SelectObject(self.dc, self.previous);
+                }
+                if !self.bitmap.is_null() {
+                    DeleteObject(self.bitmap as _);
+                }
+                DeleteDC(self.dc);
+            }
+        }
+        self.dc = std::ptr::null_mut();
+        self.bitmap = std::ptr::null_mut();
+        self.previous = std::ptr::null_mut();
+        self.width = 0;
+        self.height = 0;
+    }
+}
+
+impl Drop for BackBuffer {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
 pub struct Overlay {
     pub window: nwg::Window,
     shared: Arc<SharedCaptureState>,
@@ -48,6 +109,7 @@ pub struct Overlay {
     alpha: u8,
     target_alpha: u8,
     session_started: Instant,
+    back_buffer: BackBuffer,
     event_handler: Option<nwg::EventHandler>,
 }
 
@@ -78,6 +140,7 @@ impl Overlay {
             alpha: 0,
             target_alpha: 0,
             session_started: Instant::now(),
+            back_buffer: BackBuffer::default(),
             event_handler: None,
         }));
         let weak: Weak<RefCell<Self>> = Rc::downgrade(&overlay);
@@ -101,11 +164,6 @@ impl Overlay {
         });
         overlay.borrow_mut().event_handler = Some(handler);
         let hwnd = platform::hwnd(&overlay.borrow().window.handle);
-        overlay
-            .borrow()
-            .shared
-            .overlay_hwnd
-            .store(hwnd as isize, Ordering::Relaxed);
         platform::configure_overlay(hwnd);
         Ok(overlay)
     }
@@ -275,7 +333,7 @@ impl Overlay {
 
     fn paint(&mut self, paint_data: &nwg::PaintData) {
         let paint = paint_data.begin_paint();
-        let dc = paint.hdc;
+        let target_dc = paint.hdc;
         let mut client = RECT {
             left: 0,
             top: 0,
@@ -284,6 +342,14 @@ impl Overlay {
         };
         unsafe {
             GetClientRect(self.hwnd(), &mut client);
+        }
+        let width = client.right.max(1);
+        let height = client.bottom.max(1);
+        let dc = self
+            .back_buffer
+            .prepare(target_dc, width, height)
+            .unwrap_or(target_dc);
+        unsafe {
             let black = CreateSolidBrush(0);
             FillRect(dc, &client, black);
             DeleteObject(black as _);
@@ -331,6 +397,11 @@ impl Overlay {
             }
             if self.editing {
                 self.paint_banner(dc, client.right);
+            }
+        }
+        if dc != target_dc {
+            unsafe {
+                BitBlt(target_dc, 0, 0, width, height, dc, 0, 0, SRCCOPY);
             }
         }
         paint_data.end_paint(&paint);

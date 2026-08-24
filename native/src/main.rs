@@ -44,6 +44,7 @@ fn main() {
         let _ = platform::enumerate_windows();
         return;
     }
+    platform::enable_native_dark_mode();
     nwg::init().expect("Failed to initialize native Windows UI");
     nwg::Font::set_global_family("Segoe UI").expect("Failed to set UI font");
     if std::env::args().any(|argument| argument == "--ui-smoke-test") {

@@ -4,14 +4,19 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use native_windows_gui as nwg;
-use winapi::shared::windef::RECT;
-use winapi::um::wingdi::{CreateSolidBrush, SetBkColor, SetTextColor};
+use winapi::shared::windef::{HWND, RECT};
+use winapi::um::libloaderapi::GetModuleHandleW;
+use winapi::um::wingdi::{CreateSolidBrush, SetBkColor, SetBkMode, SetTextColor, TRANSPARENT};
 use winapi::um::winuser::{
-    FillRect, GetClientRect, MF_BYCOMMAND, MF_STRING, ModifyMenuW, RegisterHotKey,
-    UnregisterHotKey, WM_CTLCOLORBTN, WM_CTLCOLORDLG, WM_CTLCOLOREDIT, WM_CTLCOLORLISTBOX,
-    WM_CTLCOLORSTATIC, WM_ERASEBKGND, WM_HOTKEY,
+    BeginDeferWindowPos, CreateWindowExW, DeferWindowPos, EndDeferWindowPos, FillRect,
+    GetClientRect, GetDpiForWindow, GetPropW, HDWP, MF_BYCOMMAND, MF_STRING, MINMAXINFO,
+    ModifyMenuW, RegisterHotKey, SS_LEFT, SS_NOPREFIX, SWP_NOACTIVATE, SWP_NOOWNERZORDER,
+    SWP_NOZORDER, SetPropW, UnregisterHotKey, WM_CTLCOLORBTN, WM_CTLCOLORDLG, WM_CTLCOLOREDIT,
+    WM_CTLCOLORLISTBOX, WM_CTLCOLORSTATIC, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_HOTKEY, WS_CHILD,
+    WS_VISIBLE,
 };
 
 use crate::capture::{self, NativeCaptureControl, SharedCaptureState};
@@ -22,9 +27,59 @@ use crate::overlay::Overlay;
 use crate::platform;
 use crate::settings;
 
-const BG: [u8; 3] = [28, 28, 28];
-const TEXT: [u8; 3] = [245, 245, 245];
-const MUTED: [u8; 3] = [178, 178, 178];
+const BG: [u8; 3] = [31, 31, 31];
+const CARD: [u8; 3] = [39, 39, 39];
+const TEXT: [u8; 3] = [248, 248, 248];
+const MUTED: [u8; 3] = [166, 166, 166];
+const TEXT_COLOR_PROPERTY: *const u16 = 0x53A0_usize as *const u16;
+
+struct LayoutBatch {
+    handle: HDWP,
+    dpi: i32,
+}
+
+impl LayoutBatch {
+    fn new(root: HWND, capacity: i32) -> Self {
+        Self {
+            handle: unsafe { BeginDeferWindowPos(capacity) },
+            dpi: unsafe { GetDpiForWindow(root) }.max(96) as i32,
+        }
+    }
+
+    fn place(&mut self, control: &nwg::ControlHandle, x: i32, y: i32, width: i32, height: i32) {
+        let Some(hwnd) = control.hwnd() else {
+            return;
+        };
+        if self.handle.is_null() {
+            return;
+        }
+        self.handle = unsafe {
+            DeferWindowPos(
+                self.handle,
+                hwnd,
+                std::ptr::null_mut(),
+                scale_for_dpi(x, self.dpi),
+                scale_for_dpi(y, self.dpi),
+                scale_for_dpi(width.max(1), self.dpi),
+                scale_for_dpi(height.max(1), self.dpi),
+                SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER,
+            )
+        };
+    }
+
+    fn finish(&mut self) {
+        if !self.handle.is_null() {
+            unsafe {
+                EndDeferWindowPos(self.handle);
+            }
+            self.handle = std::ptr::null_mut();
+        }
+    }
+}
+
+fn scale_for_dpi(value: i32, dpi: i32) -> i32 {
+    value.saturating_mul(dpi) / 96
+}
 
 #[derive(Default)]
 struct MonitorPage {
@@ -145,6 +200,8 @@ pub struct App {
     active: bool,
     paused: bool,
     page: usize,
+    last_window_size: (u32, u32),
+    pending_capture_restart: Option<Instant>,
     event_handler: Option<nwg::EventHandler>,
     raw_handler: Option<nwg::RawEventHandler>,
     color_handlers: Vec<nwg::RawEventHandler>,
@@ -197,6 +254,8 @@ impl App {
             active: false,
             paused: false,
             page: 0,
+            last_window_size: (0, 0),
+            pending_capture_restart: None,
             event_handler: None,
             raw_handler: None,
             color_handlers: Vec::new(),
@@ -212,6 +271,7 @@ impl App {
             value.show_page(0);
             value.update_value_labels();
             value.apply_themes();
+            value.resize_layout();
             let hwnd = platform::hwnd(&value.window.handle);
             platform::apply_dark_title_bar(hwnd);
             unsafe {
@@ -233,12 +293,12 @@ impl App {
     fn build_controls(&mut self) -> Result<(), nwg::NwgError> {
         nwg::Font::builder()
             .family("Segoe UI Variable Display")
-            .size(25)
+            .size_absolute(25)
             .weight(600)
             .build(&mut self.heading_font)?;
         nwg::Font::builder()
             .family("Segoe UI Variable Text")
-            .size(18)
+            .size_absolute(18)
             .weight(600)
             .build(&mut self.page_font)?;
         self.resources = nwg::EmbedResource::load(None)?;
@@ -251,7 +311,7 @@ impl App {
             .center(true)
             .title("SideScreenUtil")
             .icon(Some(&self.icon))
-            .flags(nwg::WindowFlags::WINDOW | nwg::WindowFlags::VISIBLE)
+            .flags(nwg::WindowFlags::MAIN_WINDOW | nwg::WindowFlags::VISIBLE)
             .build(&mut self.window)?;
         label(
             &mut self.heading,
@@ -737,9 +797,15 @@ impl App {
         });
         app.borrow_mut().event_handler = Some(handler);
         let weak: Weak<RefCell<Self>> = Rc::downgrade(app);
-        let background_brush = unsafe { CreateSolidBrush(0x001c1c1c) } as isize;
-        let raw = nwg::bind_raw_event_handler(&window_handle, 0x1_5343, move |hwnd, msg, w, _| {
-            if msg == WM_HOTKEY && w == platform::HOTKEY_ID as usize {
+        let background_brush = unsafe { CreateSolidBrush(rgb(BG)) } as isize;
+        let raw = nwg::bind_raw_event_handler(&window_handle, 0x1_5343, move |hwnd, msg, w, l| {
+            if msg == WM_GETMINMAXINFO {
+                let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96) as i32;
+                let info = unsafe { &mut *(l as *mut MINMAXINFO) };
+                info.ptMinTrackSize.x = 900 * dpi / 96;
+                info.ptMinTrackSize.y = 760 * dpi / 96;
+                return Some(0);
+            } else if msg == WM_HOTKEY && w == platform::HOTKEY_ID as usize {
                 if let Some(app) = weak.upgrade() {
                     if let Ok(mut app) = app.try_borrow_mut() {
                         app.toggle_layout_edit();
@@ -766,8 +832,9 @@ impl App {
                     | WM_CTLCOLORLISTBOX
             ) {
                 unsafe {
-                    SetBkColor(w as _, 0x001c1c1c);
-                    SetTextColor(w as _, 0x00f5f5f5);
+                    SetBkMode(w as _, TRANSPARENT as i32);
+                    SetBkColor(w as _, rgb(BG));
+                    SetTextColor(w as _, control_text_color(l));
                 }
                 return Some(background_brush);
             }
@@ -850,7 +917,7 @@ impl App {
             } else if handle == self.pause_resume.handle {
                 self.toggle_pause();
             } else if handle == self.protection_page.resolution_limit.handle {
-                self.controls_changed(false);
+                self.controls_changed(true);
             }
         } else if event == nwg::Event::OnComboxBoxSelection {
             if handle == self.language.handle {
@@ -860,14 +927,21 @@ impl App {
             } else if handle == self.layout_page.kind_combo.handle {
                 self.layout_changed();
             } else if handle == self.filter_page.kind_combo.handle {
-                self.controls_changed(false);
+                self.controls_changed(true);
             }
         } else if event == nwg::Event::OnListBoxSelect
             && handle == self.monitor_page.windows_list.handle
         {
             self.windows_changed();
         } else if event == nwg::Event::OnHorizontalScroll {
-            self.controls_changed(handle == self.protection_page.fps.handle);
+            let affects_captured_frame = handle == self.filter_page.brightness.handle
+                || handle == self.filter_page.hue.handle
+                || handle == self.filter_page.edge_threshold.handle
+                || handle == self.filter_page.edge_width.handle
+                || handle == self.protection_page.fps.handle;
+            self.controls_changed(affects_captured_frame);
+        } else if event == nwg::Event::OnResize && handle == self.window.handle {
+            self.resize_layout();
         } else if event == nwg::Event::OnTimerTick && handle == self.timer.handle {
             self.tick();
         }
@@ -900,6 +974,7 @@ impl App {
         self.overlay.borrow_mut().deactivate();
         capture::stop_all(&mut self.captures);
         self.shared.clear();
+        self.pending_capture_restart = None;
         self.active = false;
         self.paused = false;
         self.update_state();
@@ -1032,8 +1107,8 @@ impl App {
         self.overlay
             .borrow_mut()
             .set_settings(self.settings.clone());
-        if restart_capture {
-            self.synchronize_captures(true);
+        if restart_capture && self.active {
+            self.pending_capture_restart = Some(Instant::now() + Duration::from_millis(80));
         }
         self.update_value_labels();
         let _ = settings::save(&self.settings);
@@ -1067,7 +1142,7 @@ impl App {
         if self.color_dialog.run(Some(&self.window)) {
             let [r, g, b] = self.color_dialog.color();
             self.settings.accent_color = ((r as u32) << 16) | ((g as u32) << 8) | b as u32;
-            self.controls_changed(false);
+            self.controls_changed(true);
         }
     }
 
@@ -1089,7 +1164,17 @@ impl App {
     }
 
     fn tick(&mut self) {
+        if self.window.size() != self.last_window_size {
+            self.resize_layout();
+        }
         self.overlay.borrow_mut().tick();
+        if self
+            .pending_capture_restart
+            .is_some_and(|due| Instant::now() >= due)
+        {
+            self.pending_capture_restart = None;
+            self.synchronize_captures(true);
+        }
         let closed: Vec<isize> = self
             .shared
             .closed_windows
@@ -1200,6 +1285,7 @@ impl App {
         self.nav_layout.set_text(&self.t("tabs.layout"));
         self.nav_filters.set_text(&self.t("tabs.filters"));
         self.nav_protection.set_text(&self.t("tabs.protection"));
+        self.update_nav_labels();
         self.monitor_page.title.set_text(&self.t("source.section"));
         self.monitor_page
             .description
@@ -1403,25 +1489,230 @@ impl App {
             .set_text(&format!("{} FPS", self.protection_page.fps.pos()));
     }
 
+    fn resize_layout(&mut self) {
+        let (window_width, window_height) = self.window.size();
+        self.last_window_size = (window_width, window_height);
+        let width = window_width as i32;
+        let height = window_height as i32;
+        if width < 700 || height < 600 {
+            return;
+        }
+        let page_width = (width - 254).max(646);
+        let page_height = (height - 210).max(540);
+        let mut batch = LayoutBatch::new(platform::hwnd(&self.window.handle), 64);
+        macro_rules! place {
+            ($control:expr, $x:expr, $y:expr, $width:expr, $height:expr) => {
+                batch.place(&$control.handle, $x, $y, $width.max(1), $height.max(1))
+            };
+        }
+        macro_rules! slider {
+            ($value:expr, $track:expr, $y:expr) => {
+                place!($value, page_width - 176, $y, 88, 28);
+                place!($track, 260, $y - 4, (page_width - 448).max(198), 30);
+            };
+        }
+
+        place!(self.heading, 28, 22, (width - 650).max(300), 46);
+        place!(self.subtitle, 30, 64, (width - 430).max(360), 28);
+        place!(self.language_label, width - 305, 24, 85, 28);
+        place!(self.language, width - 222, 20, 190, 34);
+        place!(self.state, width - 305, 61, 270, 28);
+        place!(
+            self.start_stop,
+            252,
+            height - 84,
+            (width - 460).max(300),
+            44
+        );
+        place!(self.pause_resume, width - 196, height - 84, 164, 44);
+        place!(self.status, 253, height - 36, (width - 285).max(400), 28);
+
+        for page in [
+            &self.monitor_page.frame,
+            &self.layout_page.frame,
+            &self.filter_page.frame,
+            &self.protection_page.frame,
+        ] {
+            batch.place(&page.handle, 246, 104, page_width, page_height);
+        }
+        batch.finish();
+        batch = LayoutBatch::new(platform::hwnd(&self.monitor_page.frame.handle), 12);
+
+        let monitor_actions_y = page_height - 110;
+        place!(self.monitor_page.title, 28, 22, page_width - 56, 36);
+        place!(self.monitor_page.description, 28, 54, page_width - 56, 28);
+        place!(
+            self.monitor_page.monitor_combo,
+            28,
+            126,
+            page_width - 176,
+            34
+        );
+        place!(
+            self.monitor_page.refresh_monitors,
+            page_width - 136,
+            126,
+            108,
+            34
+        );
+        place!(
+            self.monitor_page.windows_list,
+            28,
+            208,
+            page_width - 56,
+            page_height - 330
+        );
+        place!(
+            self.monitor_page.refresh_windows,
+            28,
+            monitor_actions_y,
+            150,
+            34
+        );
+        place!(
+            self.monitor_page.select_all,
+            188,
+            monitor_actions_y,
+            120,
+            34
+        );
+        place!(self.monitor_page.clear, 318, monitor_actions_y, 120, 34);
+        place!(
+            self.monitor_page.hint,
+            28,
+            page_height - 58,
+            page_width - 56,
+            48
+        );
+        batch.finish();
+        batch = LayoutBatch::new(platform::hwnd(&self.layout_page.frame.handle), 8);
+
+        place!(self.layout_page.title, 28, 22, page_width - 56, 36);
+        place!(self.layout_page.description, 28, 54, page_width - 56, 28);
+        place!(self.layout_page.kind_combo, 28, 138, page_width - 286, 34);
+        place!(self.layout_page.regenerate, page_width - 246, 138, 160, 34);
+        place!(self.layout_page.edit, 28, 210, page_width - 114, 44);
+        place!(self.layout_page.help, 28, 282, page_width - 86, 124);
+        batch.finish();
+        batch = LayoutBatch::new(platform::hwnd(&self.filter_page.frame.handle), 14);
+
+        place!(self.filter_page.title, 28, 22, page_width - 56, 36);
+        place!(self.filter_page.description, 28, 54, page_width - 56, 28);
+        place!(self.filter_page.kind_combo, 260, 88, page_width - 348, 34);
+        place!(
+            self.filter_page.choose_color,
+            260,
+            198,
+            page_width - 348,
+            34
+        );
+        slider!(
+            self.filter_page.brightness_value,
+            self.filter_page.brightness,
+            142
+        );
+        slider!(self.filter_page.hue_value, self.filter_page.hue, 252);
+        slider!(
+            self.filter_page.edge_threshold_value,
+            self.filter_page.edge_threshold,
+            312
+        );
+        slider!(
+            self.filter_page.edge_width_value,
+            self.filter_page.edge_width,
+            372
+        );
+        place!(self.filter_page.explanation, 28, 438, page_width - 86, 96);
+        batch.finish();
+        batch = LayoutBatch::new(platform::hwnd(&self.protection_page.frame.handle), 18);
+
+        place!(self.protection_page.title, 28, 22, page_width - 56, 36);
+        place!(
+            self.protection_page.description,
+            28,
+            54,
+            page_width - 56,
+            28
+        );
+        slider!(
+            self.protection_page.scale_value,
+            self.protection_page.scale,
+            90
+        );
+        slider!(
+            self.protection_page.drift_value,
+            self.protection_page.drift,
+            150
+        );
+        slider!(
+            self.protection_page.variation_value,
+            self.protection_page.variation,
+            210
+        );
+        slider!(
+            self.protection_page.blank_interval_value,
+            self.protection_page.blank_interval,
+            270
+        );
+        slider!(
+            self.protection_page.blank_duration_value,
+            self.protection_page.blank_duration,
+            330
+        );
+        slider!(
+            self.protection_page.fps_value,
+            self.protection_page.fps,
+            390
+        );
+        place!(
+            self.protection_page.resolution_limit,
+            28,
+            458,
+            page_width - 116,
+            34
+        );
+        place!(
+            self.protection_page.resolution_tip,
+            52,
+            493,
+            page_width - 140,
+            50
+        );
+        batch.finish();
+    }
+
     fn show_page(&mut self, page: usize) {
         self.page = page;
         self.monitor_page.frame.set_visible(page == 0);
         self.layout_page.frame.set_visible(page == 1);
         self.filter_page.frame.set_visible(page == 2);
         self.protection_page.frame.set_visible(page == 3);
+        self.update_nav_labels();
+    }
+    fn update_nav_labels(&self) {
+        let labels = [
+            self.t("tabs.monitor"),
+            self.t("tabs.layout"),
+            self.t("tabs.filters"),
+            self.t("tabs.protection"),
+        ];
+        let buttons = [
+            &self.nav_monitor,
+            &self.nav_layout,
+            &self.nav_filters,
+            &self.nav_protection,
+        ];
+        for (index, button) in buttons.into_iter().enumerate() {
+            let text = if index == self.page {
+                format!("●  {}", labels[index])
+            } else {
+                labels[index].clone()
+            };
+            button.set_text(&text);
+        }
     }
     fn apply_themes(&self) {
-        for handle in [
-            &self.language.handle,
-            &self.monitor_page.monitor_combo.handle,
-            &self.monitor_page.windows_list.handle,
-            &self.layout_page.kind_combo.handle,
-            &self.filter_page.kind_combo.handle,
-            &self.start_stop.handle,
-            &self.pause_resume.handle,
-        ] {
-            platform::apply_modern_theme(handle);
-        }
+        platform::apply_modern_theme_tree(platform::hwnd(&self.window.handle));
     }
     fn is_zh(&self) -> bool {
         self.settings.language.starts_with("zh")
@@ -1457,16 +1748,42 @@ fn label<C: Into<nwg::ControlHandle> + Copy>(
     font: Option<&nwg::Font>,
     color: [u8; 3],
 ) -> Result<(), nwg::NwgError> {
-    let mut builder = nwg::Label::builder()
-        .text(text)
-        .position(position)
-        .size(size)
-        .background_color(Some(BG))
-        .parent(parent);
-    if let Some(font) = font {
-        builder = builder.font(Some(font));
+    let parent = parent.into();
+    let parent_hwnd = parent
+        .hwnd()
+        .ok_or_else(|| nwg::NwgError::control_create("Label parent is not a window"))?;
+    let dpi = unsafe { GetDpiForWindow(parent_hwnd) }.max(96) as i32;
+    let class_name: Vec<u16> = "STATIC\0".encode_utf16().collect();
+    let text: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+    let hwnd = unsafe {
+        CreateWindowExW(
+            0,
+            class_name.as_ptr(),
+            text.as_ptr(),
+            WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX,
+            scale_for_dpi(position.0, dpi),
+            scale_for_dpi(position.1, dpi),
+            scale_for_dpi(size.0, dpi),
+            scale_for_dpi(size.1, dpi),
+            parent_hwnd,
+            std::ptr::null_mut(),
+            GetModuleHandleW(std::ptr::null()),
+            std::ptr::null_mut(),
+        )
+    };
+    if hwnd.is_null() {
+        return Err(nwg::NwgError::control_create(
+            "Failed to create native text label",
+        ));
     }
-    builder.build(out)?;
+    *out = nwg::Label::default();
+    out.handle = nwg::ControlHandle::Hwnd(hwnd);
+    if let Some(font) = font {
+        out.set_font(Some(font));
+    } else {
+        let default_font = nwg::Font::global_default();
+        out.set_font(default_font.as_ref());
+    }
     set_text_color(&out.handle, color);
     Ok(())
 }
@@ -1509,13 +1826,30 @@ fn slider_row<C: Into<nwg::ControlHandle> + Copy>(
         .parent(parent)
         .build(slider)
 }
-fn set_text_color(_handle: &nwg::ControlHandle, _color: [u8; 3]) {}
+fn rgb(color: [u8; 3]) -> u32 {
+    color[0] as u32 | (color[1] as u32) << 8 | (color[2] as u32) << 16
+}
+fn set_text_color(handle: &nwg::ControlHandle, color: [u8; 3]) {
+    if let Some(hwnd) = handle.hwnd() {
+        unsafe {
+            SetPropW(hwnd, TEXT_COLOR_PROPERTY, (rgb(color) as usize + 1) as _);
+        }
+    }
+}
+fn control_text_color(child: isize) -> u32 {
+    let value = unsafe { GetPropW(child as _, TEXT_COLOR_PROPERTY) } as usize;
+    if value == 0 {
+        rgb(TEXT)
+    } else {
+        (value - 1) as u32
+    }
+}
 fn bind_dark_container(
     handle: &nwg::ControlHandle,
     id: usize,
 ) -> Result<nwg::RawEventHandler, nwg::NwgError> {
-    let background_brush = unsafe { CreateSolidBrush(0x001c1c1c) } as isize;
-    nwg::bind_raw_event_handler(handle, id, move |hwnd, msg, w, _| {
+    let background_brush = unsafe { CreateSolidBrush(rgb(CARD)) } as isize;
+    nwg::bind_raw_event_handler(handle, id, move |hwnd, msg, w, l| {
         if msg == WM_ERASEBKGND {
             let mut rect = RECT {
                 left: 0,
@@ -1538,8 +1872,9 @@ fn bind_dark_container(
                 | WM_CTLCOLORLISTBOX
         ) {
             unsafe {
-                SetBkColor(w as _, 0x001c1c1c);
-                SetTextColor(w as _, 0x00f5f5f5);
+                SetBkMode(w as _, TRANSPARENT as i32);
+                SetBkColor(w as _, rgb(CARD));
+                SetTextColor(w as _, control_text_color(l));
             }
             return Some(background_brush);
         }
@@ -1619,10 +1954,32 @@ pub fn smoke_test() -> Result<(), String> {
         app.show_page(2);
         app.show_page(3);
         app.show_page(0);
+        app.window.set_size(1280, 840);
+        app.resize_layout();
+        if app.monitor_page.frame.size().0 <= 786 || app.start_stop.size().0 <= 580 {
+            return Err(format!(
+                "Responsive main-window layout did not expand: frame={:?}, start={:?}, window={:?}",
+                app.monitor_page.frame.size(),
+                app.start_stop.size(),
+                app.window.size()
+            ));
+        }
         app.monitor_page.windows_list.unselect_all();
         app.start();
         if !app.active || !app.overlay.borrow().is_active() {
             return Err("Black-only secondary-screen mode did not activate".to_owned());
+        }
+        app.filter_page.kind_combo.set_selection(Some(1));
+        app.controls_changed(true);
+        if app.settings.filter_style != FilterStyle::Grayscale
+            || app.pending_capture_restart.is_none()
+        {
+            return Err("Live visual setting refresh was not scheduled".to_owned());
+        }
+        app.pending_capture_restart = Some(Instant::now());
+        app.tick();
+        if app.pending_capture_restart.is_some() {
+            return Err("Live visual setting refresh did not complete".to_owned());
         }
         app.toggle_pause();
         if !app.paused {

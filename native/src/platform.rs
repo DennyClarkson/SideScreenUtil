@@ -5,15 +5,17 @@ use native_windows_gui::ControlHandle;
 use winapi::shared::minwindef::{BOOL, DWORD, LPARAM, TRUE};
 use winapi::shared::windef::{HDC, HMONITOR, HWND, LPRECT, POINT};
 use winapi::um::dwmapi::DwmSetWindowAttribute;
+use winapi::um::libloaderapi::{FreeLibrary, GetProcAddress, LoadLibraryW};
 use winapi::um::uxtheme::SetWindowTheme;
 use winapi::um::wingdi::DISPLAY_DEVICEW;
 use winapi::um::winuser::{
-    EnumDisplayDevicesW, EnumDisplayMonitors, GWL_EXSTYLE, GetCursorPos, GetMonitorInfoW,
-    GetWindowLongPtrW, HWND_TOPMOST, IsWindow, LWA_ALPHA, MOD_ALT, MOD_CONTROL, MONITORINFO,
-    MONITORINFOEXW, MONITORINFOF_PRIMARY, SW_HIDE, SW_RESTORE, SW_SHOWNOACTIVATE, SWP_FRAMECHANGED,
-    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetForegroundWindow, SetLayeredWindowAttributes,
-    SetProcessDpiAwarenessContext, SetWindowLongPtrW, SetWindowPos, ShowWindow, WS_EX_LAYERED,
-    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    EnumChildWindows, EnumDisplayDevicesW, EnumDisplayMonitors, GWL_EXSTYLE, GetClassNameW,
+    GetCursorPos, GetMonitorInfoW, GetWindowLongPtrW, HWND_TOPMOST, IsWindow, LWA_ALPHA, MOD_ALT,
+    MOD_CONTROL, MONITORINFO, MONITORINFOEXW, MONITORINFOF_PRIMARY, RDW_ALLCHILDREN, RDW_ERASE,
+    RDW_FRAME, RDW_INVALIDATE, RedrawWindow, SW_HIDE, SW_RESTORE, SW_SHOWNOACTIVATE,
+    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetForegroundWindow,
+    SetLayeredWindowAttributes, SetProcessDpiAwarenessContext, SetWindowLongPtrW, SetWindowPos,
+    ShowWindow, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
 use windows_capture::window::Window;
 
@@ -25,6 +27,27 @@ pub const HOTKEY_MODIFIERS: u32 = MOD_CONTROL as u32 | MOD_ALT as u32;
 pub fn enable_dpi_awareness() {
     unsafe {
         SetProcessDpiAwarenessContext(-4_isize as _);
+    }
+}
+
+/// Opt classic Win32 controls into the process-wide dark palette before any
+/// controls are created. The uxtheme entry point is undocumented but has been
+/// stable since Windows 10 1809; every call is guarded so older systems retain
+/// their normal theme instead of failing to start.
+pub fn enable_native_dark_mode() {
+    unsafe {
+        let library_name: Vec<u16> = "uxtheme.dll\0".encode_utf16().collect();
+        let library = LoadLibraryW(library_name.as_ptr());
+        if library.is_null() {
+            return;
+        }
+        let address = GetProcAddress(library, 135_usize as *const i8);
+        if !address.is_null() {
+            type SetPreferredAppMode = unsafe extern "system" fn(i32) -> i32;
+            let set_preferred: SetPreferredAppMode = std::mem::transmute(address);
+            set_preferred(1); // AllowDark
+        }
+        FreeLibrary(library);
     }
 }
 
@@ -145,6 +168,7 @@ pub fn point_in_rect(point: [i32; 2], rect: [i32; 4]) -> bool {
 
 pub fn apply_dark_title_bar(hwnd: HWND) {
     let enabled: i32 = 1;
+    let corner_preference: i32 = 2;
     unsafe {
         DwmSetWindowAttribute(
             hwnd,
@@ -152,16 +176,56 @@ pub fn apply_dark_title_bar(hwnd: HWND) {
             &enabled as *const i32 as *const _,
             size_of::<i32>() as u32,
         );
+        DwmSetWindowAttribute(
+            hwnd,
+            33,
+            &corner_preference as *const i32 as *const _,
+            size_of::<i32>() as u32,
+        );
     }
 }
 
-pub fn apply_modern_theme(handle: &ControlHandle) {
-    let Some(hwnd) = handle.hwnd() else {
-        return;
+fn apply_modern_theme_hwnd(hwnd: HWND) {
+    let mut class_buffer = [0_u16; 64];
+    let class_length =
+        unsafe { GetClassNameW(hwnd, class_buffer.as_mut_ptr(), 64) }.max(0) as usize;
+    let class_name = String::from_utf16_lossy(&class_buffer[..class_length]);
+    let theme_name = if class_name.eq_ignore_ascii_case("ComboBox") {
+        "DarkMode_CFD\0"
+    } else {
+        "DarkMode_Explorer\0"
     };
-    let theme: Vec<u16> = "DarkMode_Explorer\0".encode_utf16().collect();
+    let theme: Vec<u16> = theme_name.encode_utf16().collect();
     unsafe {
+        let library_name: Vec<u16> = "uxtheme.dll\0".encode_utf16().collect();
+        let library = LoadLibraryW(library_name.as_ptr());
+        if !library.is_null() {
+            let address = GetProcAddress(library, 133_usize as *const i8);
+            if !address.is_null() {
+                type AllowDarkModeForWindow = unsafe extern "system" fn(HWND, BOOL) -> BOOL;
+                let allow_dark: AllowDarkModeForWindow = std::mem::transmute(address);
+                allow_dark(hwnd, TRUE);
+            }
+            FreeLibrary(library);
+        }
         SetWindowTheme(hwnd, theme.as_ptr(), ptr::null());
+    }
+}
+
+pub fn apply_modern_theme_tree(root: HWND) {
+    unsafe extern "system" fn callback(hwnd: HWND, _data: LPARAM) -> BOOL {
+        apply_modern_theme_hwnd(hwnd);
+        TRUE
+    }
+    apply_modern_theme_hwnd(root);
+    unsafe {
+        EnumChildWindows(root, Some(callback), 0);
+        RedrawWindow(
+            root,
+            ptr::null(),
+            ptr::null_mut(),
+            RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN,
+        );
     }
 }
 

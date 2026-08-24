@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -10,7 +10,7 @@ use winapi::um::wingdi::{
     BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC,
     DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDIBits, SRCCOPY, SelectObject,
 };
-use winapi::um::winuser::{GetWindowDC, GetWindowRect, InvalidateRect, PrintWindow, ReleaseDC};
+use winapi::um::winuser::{GetWindowDC, GetWindowRect, PrintWindow, ReleaseDC};
 use windows_capture::capture::{CaptureControl, Context, GraphicsCaptureApiHandler};
 use windows_capture::frame::Frame;
 use windows_capture::graphics_capture_api::InternalCaptureControl;
@@ -27,7 +27,6 @@ pub struct SharedCaptureState {
     pub frames: Mutex<HashMap<isize, Arc<FrameData>>>,
     pub settings: RwLock<AppSettings>,
     pub closed_windows: Mutex<Vec<isize>>,
-    pub overlay_hwnd: AtomicIsize,
     started_at: Instant,
 }
 
@@ -37,7 +36,6 @@ impl SharedCaptureState {
             frames: Mutex::new(HashMap::new()),
             settings: RwLock::new(settings),
             closed_windows: Mutex::new(Vec::new()),
-            overlay_hwnd: AtomicIsize::new(0),
             started_at: Instant::now(),
         })
     }
@@ -128,12 +126,6 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .insert(self.flags.hwnd, Arc::new(result));
-        let overlay = self.flags.shared.overlay_hwnd.load(Ordering::Relaxed);
-        if overlay != 0 {
-            unsafe {
-                InvalidateRect(overlay as _, std::ptr::null(), 0);
-            }
-        }
         Ok(())
     }
 
@@ -195,12 +187,6 @@ impl GdiCaptureControl {
                         .lock()
                         .unwrap_or_else(|error| error.into_inner())
                         .insert(hwnd, Arc::new(frame));
-                    let overlay = shared.overlay_hwnd.load(Ordering::Relaxed);
-                    if overlay != 0 {
-                        unsafe {
-                            InvalidateRect(overlay as _, std::ptr::null(), 0);
-                        }
-                    }
                 }
                 if let Some(remaining) = interval.checked_sub(frame_started.elapsed()) {
                     thread::sleep(remaining);
