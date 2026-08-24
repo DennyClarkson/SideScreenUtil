@@ -94,7 +94,8 @@ jobs:
         shell: pwsh
         run: |
           $Exe = ".\native\target\x86_64-pc-windows-msvc\release\sidescreenutil-native.exe"
-          $Process = Start-Process -FilePath $Exe -ArgumentList "--binary-smoke-test" -PassThru
+          $env:SIDESCREENUTIL_BINARY_SMOKE = "1"
+          $Process = Start-Process -FilePath $Exe -PassThru
           if (-not $Process.WaitForExit(15000)) {
             Stop-Process -Id $Process.Id -Force
             throw "Native binary smoke test timed out after 15 seconds."

@@ -14,7 +14,9 @@ mod ui;
 
 fn main() {
     platform::enable_dpi_awareness();
-    if std::env::args().any(|argument| argument == "--binary-smoke-test") {
+    if std::env::var_os("SIDESCREENUTIL_BINARY_SMOKE").is_some()
+        || std::env::args().any(|argument| argument == "--binary-smoke-test")
+    {
         let mut settings = settings::load();
         settings.normalize();
         let translations = i18n::Translations::load(&settings.language);
