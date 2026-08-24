@@ -13,7 +13,6 @@ mod settings;
 mod ui;
 
 fn main() {
-    platform::enable_dpi_awareness();
     if std::env::var_os("SIDESCREENUTIL_BINARY_SMOKE").is_some()
         || std::env::args().any(|argument| argument == "--binary-smoke-test")
     {
@@ -30,6 +29,7 @@ fn main() {
         }
         return;
     }
+    platform::enable_dpi_awareness();
     if std::env::args().any(|argument| argument == "--capture-smoke-test") {
         if let Err(error) = capture::capture_smoke_test() {
             eprintln!("{error}");
