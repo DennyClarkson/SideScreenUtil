@@ -90,20 +90,6 @@ jobs:
         shell: pwsh
         run: cargo +stable build --manifest-path native\Cargo.toml --release --target x86_64-pc-windows-msvc
 
-      - name: Smoke-test native executable
-        shell: pwsh
-        run: |
-          $Exe = ".\native\target\x86_64-pc-windows-msvc\release\sidescreenutil-native.exe"
-          $env:SIDESCREENUTIL_BINARY_SMOKE = "1"
-          $Process = Start-Process -FilePath $Exe -PassThru
-          if (-not $Process.WaitForExit(15000)) {
-            Stop-Process -Id $Process.Id -Force
-            throw "Native binary smoke test timed out after 15 seconds."
-          }
-          if ($Process.ExitCode -ne 0) {
-            throw "Native binary smoke test failed with exit code $($Process.ExitCode)."
-          }
-
       - name: Upload native test artifact
         uses: actions/upload-artifact@v7
         with:
@@ -111,3 +97,20 @@ jobs:
           path: native/target/x86_64-pc-windows-msvc/release/sidescreenutil-native.exe
           if-no-files-found: error
           retention-days: 7
+
+      - name: Smoke-test native executable
+        shell: pwsh
+        run: |
+          $Exe = ".\native\target\x86_64-pc-windows-msvc\release\sidescreenutil-native.exe"
+          $env:SIDESCREENUTIL_BINARY_SMOKE = "1"
+          $Process = Start-Process -FilePath $Exe -PassThru
+          Start-Sleep -Seconds 2
+          $Process.Refresh()
+          Write-Host "Native process state: exited=$($Process.HasExited), title='$($Process.MainWindowTitle)'"
+          if (-not $Process.WaitForExit(15000)) {
+            Stop-Process -Id $Process.Id -Force
+            throw "Native binary smoke test timed out after 15 seconds."
+          }
+          if ($Process.ExitCode -ne 0) {
+            throw "Native binary smoke test failed with exit code $($Process.ExitCode)."
+          }
