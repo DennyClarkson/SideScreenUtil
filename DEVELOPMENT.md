@@ -1,5 +1,13 @@
 # SideScreenUtil Development Guide
 
+## AI-assisted maintenance
+
+The repository includes a project-scoped Codex skill at
+`.agents/skills/sidescreenutil-maintainer/SKILL.md`. Codex discovers it automatically when opened
+inside this repository, or it can be invoked explicitly as `$sidescreenutil-maintainer`. The skill
+maps the Python and Rust implementations, preserves cross-edition product invariants, and routes
+build and release work through the existing verified scripts.
+
 ## Architecture
 
 SideScreenUtil has two Windows implementations that are released and maintained in parallel:

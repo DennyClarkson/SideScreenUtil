@@ -1,0 +1,8 @@
+interface:
+  display_name: "SideScreenUtil Maintainer"
+  short_description: "Maintain both SideScreenUtil editions safely"
+  brand_color: "#0B84D8"
+  default_prompt: "Use $sidescreenutil-maintainer to implement and verify this SideScreenUtil change across both maintained editions."
+
+policy:
+  allow_implicit_invocation: true
