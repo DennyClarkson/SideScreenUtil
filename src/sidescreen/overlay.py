@@ -255,16 +255,15 @@ class MonitorOverlay(QWidget):
     def _composition_rect(self, now: float) -> QRectF:
         if self._layout_editing and self._edit_composition is not None:
             return QRectF(self._edit_composition)
-        margin = max(16, int(min(self.width(), self.height()) * 0.035))
-        available_width = max(1, self.width() - margin * 2)
-        available_height = max(1, self.height() - margin * 2)
+        available_width = max(1, self.width())
+        available_height = max(1, self.height())
         motion = self._motion.sample(now)
         scale = self._settings.preview_scale * motion.scale
         width = max(1.0, available_width * scale)
         height = max(1.0, available_height * scale)
         free_x = max(0.0, available_width - width)
         free_y = max(0.0, available_height - height)
-        return QRectF(margin + free_x * motion.x, margin + free_y * motion.y, width, height)
+        return QRectF(free_x * motion.x, free_y * motion.y, width, height)
 
     def _interpolated_layout(self, now: float) -> dict[int, QRectF]:
         if not self._layout_target:

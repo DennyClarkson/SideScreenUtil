@@ -3,19 +3,19 @@ use std::ptr;
 
 use native_windows_gui::ControlHandle;
 use winapi::shared::minwindef::{BOOL, DWORD, LPARAM, TRUE};
-use winapi::shared::windef::{HDC, HMONITOR, HWND, LPRECT, POINT};
+use winapi::shared::windef::{HDC, HMONITOR, HWND, LPRECT, POINT, RECT};
 use winapi::um::dwmapi::DwmSetWindowAttribute;
 use winapi::um::libloaderapi::{FreeLibrary, GetProcAddress, LoadLibraryW};
 use winapi::um::uxtheme::SetWindowTheme;
 use winapi::um::wingdi::DISPLAY_DEVICEW;
 use winapi::um::winuser::{
     EnumChildWindows, EnumDisplayDevicesW, EnumDisplayMonitors, GWL_EXSTYLE, GetClassNameW,
-    GetCursorPos, GetMonitorInfoW, GetWindowLongPtrW, HWND_TOPMOST, IsWindow, LWA_ALPHA, MOD_ALT,
-    MOD_CONTROL, MONITORINFO, MONITORINFOEXW, MONITORINFOF_PRIMARY, RDW_ALLCHILDREN, RDW_ERASE,
-    RDW_FRAME, RDW_INVALIDATE, RedrawWindow, SW_HIDE, SW_RESTORE, SW_SHOWNOACTIVATE,
-    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetForegroundWindow,
-    SetLayeredWindowAttributes, SetProcessDpiAwarenessContext, SetWindowLongPtrW, SetWindowPos,
-    ShowWindow, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    GetClientRect, GetCursorPos, GetDpiForWindow, GetMonitorInfoW, GetWindowLongPtrW, HWND_TOPMOST,
+    IsWindow, LWA_ALPHA, MOD_ALT, MOD_CONTROL, MONITORINFO, MONITORINFOEXW, MONITORINFOF_PRIMARY,
+    RDW_ALLCHILDREN, RDW_ERASE, RDW_FRAME, RDW_INVALIDATE, RedrawWindow, SW_HIDE, SW_RESTORE,
+    SW_SHOWNOACTIVATE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    SetForegroundWindow, SetLayeredWindowAttributes, SetProcessDpiAwarenessContext,
+    SetWindowLongPtrW, SetWindowPos, ShowWindow, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
 use windows_capture::window::Window;
 
@@ -154,6 +154,28 @@ pub fn window_exists(hwnd: isize) -> bool {
     unsafe { IsWindow(hwnd as HWND) != 0 }
 }
 
+pub fn logical_client_size(hwnd: HWND) -> Option<(u32, u32)> {
+    if hwnd.is_null() || unsafe { IsWindow(hwnd) } == 0 {
+        return None;
+    }
+    let mut rect: RECT = unsafe { zeroed() };
+    if unsafe { GetClientRect(hwnd, &mut rect) } == 0 {
+        return None;
+    }
+    let dpi = unsafe { GetDpiForWindow(hwnd) };
+    logical_size_from_physical(rect.right - rect.left, rect.bottom - rect.top, dpi)
+}
+
+fn logical_size_from_physical(width: i32, height: i32, dpi: u32) -> Option<(u32, u32)> {
+    if width < 0 || height < 0 || dpi == 0 {
+        return None;
+    }
+    let convert = |value: i32| {
+        ((value as u64 * 96 + u64::from(dpi) / 2) / u64::from(dpi)).min(u64::from(u32::MAX)) as u32
+    };
+    Some((convert(width), convert(height)))
+}
+
 pub fn cursor_position() -> [i32; 2] {
     let mut point = POINT { x: 0, y: 0 };
     unsafe {
@@ -277,5 +299,15 @@ mod tests {
     fn point_hit_test_uses_half_open_bounds() {
         assert!(point_in_rect([10, 10], [0, 0, 20, 20]));
         assert!(!point_in_rect([20, 10], [0, 0, 20, 20]));
+    }
+
+    #[test]
+    fn client_size_conversion_handles_dpi_without_dividing_by_zero() {
+        assert_eq!(
+            logical_size_from_physical(1920, 1080, 144),
+            Some((1280, 720))
+        );
+        assert_eq!(logical_size_from_physical(1920, 1080, 0), None);
+        assert_eq!(logical_size_from_physical(-1, 1080, 96), None);
     }
 }

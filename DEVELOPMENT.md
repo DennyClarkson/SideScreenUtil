@@ -27,7 +27,7 @@ The main components are:
 - `src/sidescreen/i18n.py`: JSON language discovery, fallback, and placeholder formatting.
 - `src/sidescreen/models.py`: serializable application settings and window metadata.
 
-The overlay layout uses normalized rectangles in the `[0, 1]` coordinate space. The complete composition can drift and scale without changing the relative geometry of its source windows.
+The overlay layout uses normalized rectangles in the `[0, 1]` coordinate space. The complete composition can drift to the physical screen edges, rebound, and scale without changing the relative geometry of its source windows.
 
 ## Environment setup
 

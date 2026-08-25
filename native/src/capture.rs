@@ -94,7 +94,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         _capture_control: InternalCaptureControl,
     ) -> Result<(), Self::Error> {
         let now = Instant::now();
-        if now.duration_since(self.last_frame_at) < self.flags.minimum_interval.mul_f32(0.8) {
+        if now.duration_since(self.last_frame_at) < self.flags.minimum_interval {
             return Ok(());
         }
         self.last_frame_at = now;

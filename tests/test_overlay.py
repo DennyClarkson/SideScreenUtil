@@ -6,6 +6,7 @@ import numpy as np  # noqa: E402
 from PySide6.QtCore import QRectF  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from sidescreen.motion import MotionSample  # noqa: E402
 from sidescreen.overlay import MonitorOverlay  # noqa: E402
 
 
@@ -46,5 +47,24 @@ def test_empty_sources_clear_layout_and_keep_black_canvas() -> None:
     assert overlay.frame_sizes == {}
     assert overlay._layout_target == {}
     assert not overlay.start_layout_editing()
+    overlay.deleteLater()
+    application.processEvents()
+
+
+def test_composition_can_touch_both_screen_edges() -> None:
+    application = QApplication.instance() or QApplication([])
+    overlay = MonitorOverlay()
+    overlay.resize(1000, 800)
+    overlay._settings.preview_scale = 0.8
+
+    overlay._motion.sample = lambda _now: MotionSample(0.0, 0.0, 1.0)
+    at_top_left = overlay._composition_rect(0.0)
+    overlay._motion.sample = lambda _now: MotionSample(1.0, 1.0, 1.0)
+    at_bottom_right = overlay._composition_rect(0.0)
+
+    assert at_top_left.left() == 0.0
+    assert at_top_left.top() == 0.0
+    assert at_bottom_right.right() == 1000.0
+    assert at_bottom_right.bottom() == 800.0
     overlay.deleteLater()
     application.processEvents()

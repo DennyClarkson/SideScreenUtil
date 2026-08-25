@@ -4,7 +4,7 @@ use std::f32::consts::TAU;
 use std::mem::{size_of, zeroed};
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use native_windows_gui as nwg;
 use winapi::shared::minwindef::DWORD;
@@ -109,6 +109,8 @@ pub struct Overlay {
     alpha: u8,
     target_alpha: u8,
     session_started: Instant,
+    last_render_at: Instant,
+    was_periodic_blank: bool,
     back_buffer: BackBuffer,
     event_handler: Option<nwg::EventHandler>,
 }
@@ -140,6 +142,8 @@ impl Overlay {
             alpha: 0,
             target_alpha: 0,
             session_started: Instant::now(),
+            last_render_at: Instant::now(),
+            was_periodic_blank: false,
             back_buffer: BackBuffer::default(),
             event_handler: None,
         }));
@@ -175,7 +179,10 @@ impl Overlay {
     pub fn activate(&mut self, monitor: MonitorInfo, settings: AppSettings) {
         self.monitor = Some(monitor.clone());
         self.settings = settings;
-        self.session_started = Instant::now();
+        let now = Instant::now();
+        self.session_started = now;
+        self.last_render_at = now;
+        self.was_periodic_blank = false;
         self.active = true;
         self.pointer_suppressed = false;
         self.editing = false;
@@ -205,6 +212,8 @@ impl Overlay {
 
     pub fn set_settings(&mut self, settings: AppSettings) {
         self.settings = settings;
+        self.was_periodic_blank = self.periodic_blank();
+        self.last_render_at = Instant::now();
         unsafe {
             InvalidateRect(self.hwnd(), std::ptr::null(), 0);
         }
@@ -215,6 +224,7 @@ impl Overlay {
             .into_iter()
             .map(|(hwnd, rect)| (hwnd, rect.normalized()))
             .collect();
+        self.last_render_at = Instant::now();
         unsafe {
             InvalidateRect(self.hwnd(), std::ptr::null(), 0);
         }
@@ -278,8 +288,31 @@ impl Overlay {
         } else if !inside && self.pointer_suppressed {
             self.reveal();
         }
-        unsafe {
-            InvalidateRect(self.hwnd(), std::ptr::null(), 0);
+
+        if self.pointer_suppressed || self.alpha == 0 {
+            return;
+        }
+
+        let blank = self.periodic_blank();
+        if blank != self.was_periodic_blank {
+            self.was_periodic_blank = blank;
+            self.last_render_at = Instant::now();
+            unsafe {
+                InvalidateRect(self.hwnd(), std::ptr::null(), 0);
+            }
+            return;
+        }
+
+        if blank || self.layout.is_empty() {
+            return;
+        }
+
+        let now = Instant::now();
+        if now.duration_since(self.last_render_at) >= render_interval(self.settings.capture_fps) {
+            self.last_render_at = now;
+            unsafe {
+                InvalidateRect(self.hwnd(), std::ptr::null(), 0);
+            }
         }
     }
 
@@ -289,6 +322,10 @@ impl Overlay {
         self.target_alpha = 255;
         platform::show_overlay(self.hwnd(), true);
         platform::set_overlay_alpha(self.hwnd(), 0);
+        self.last_render_at = Instant::now();
+        unsafe {
+            InvalidateRect(self.hwnd(), std::ptr::null(), 0);
+        }
     }
 
     fn periodic_blank(&self) -> bool {
@@ -301,23 +338,8 @@ impl Overlay {
     }
 
     fn composition_rect(&self, width: i32, height: i32) -> [f32; 4] {
-        let margin = (width.min(height) as f32 * 0.035).max(16.0);
-        let available_width = (width as f32 - margin * 2.0).max(1.0);
-        let available_height = (height as f32 - margin * 2.0).max(1.0);
         let elapsed = self.session_started.elapsed().as_secs_f32();
-        let phase = elapsed / self.settings.move_seconds.max(30) as f32 * TAU;
-        let motion_x = 0.5 + 0.5 * phase.sin();
-        let motion_y = 0.5 + 0.5 * (phase * 0.73 + 1.2).sin();
-        let scale_variation = 1.0 + self.settings.size_variation * (phase * 0.41).sin();
-        let scale = (self.settings.preview_scale * scale_variation).clamp(0.18, 0.94);
-        let content_width = available_width * scale;
-        let content_height = available_height * scale;
-        [
-            margin + (available_width - content_width) * motion_x,
-            margin + (available_height - content_height) * motion_y,
-            content_width,
-            content_height,
-        ]
+        composition_rect_at(width, height, elapsed, &self.settings)
     }
 
     fn cell_rect(composition: [f32; 4], rect: RectF) -> [i32; 4] {
@@ -556,6 +578,28 @@ impl Overlay {
     }
 }
 
+fn composition_rect_at(width: i32, height: i32, elapsed: f32, settings: &AppSettings) -> [f32; 4] {
+    let available_width = width.max(1) as f32;
+    let available_height = height.max(1) as f32;
+    let phase = elapsed / settings.move_seconds.max(30) as f32 * TAU;
+    let motion_x = 0.5 + 0.5 * phase.sin();
+    let motion_y = 0.5 + 0.5 * (phase * 0.73 + 1.2).sin();
+    let scale_variation = 1.0 + settings.size_variation * (phase * 0.41).sin();
+    let scale = (settings.preview_scale * scale_variation).clamp(0.18, 0.94);
+    let content_width = available_width * scale;
+    let content_height = available_height * scale;
+    [
+        (available_width - content_width) * motion_x,
+        (available_height - content_height) * motion_y,
+        content_width,
+        content_height,
+    ]
+}
+
+fn render_interval(capture_fps: u32) -> Duration {
+    Duration::from_secs_f64(1.0 / capture_fps.clamp(5, 30) as f64)
+}
+
 fn bitmap_info(width: u32, height: u32) -> BITMAPINFO {
     let mut info: BITMAPINFO = unsafe { zeroed() };
     info.bmiHeader = BITMAPINFOHEADER {
@@ -596,4 +640,36 @@ fn fit_frame(cell: [i32; 4], width: u32, height: u32) -> [i32; 4] {
 
 fn wide(value: &str) -> Vec<u16> {
     value.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn render_interval_tracks_capture_rate() {
+        assert_eq!(render_interval(5), Duration::from_millis(200));
+        assert_eq!(render_interval(10), Duration::from_millis(100));
+        assert_eq!(render_interval(60), Duration::from_secs_f64(1.0 / 30.0));
+    }
+
+    #[test]
+    fn composition_reaches_and_rebounds_from_screen_edges() {
+        let mut settings = AppSettings::default();
+        settings.preview_scale = 0.8;
+        settings.size_variation = 0.0;
+        settings.move_seconds = 100;
+
+        let at_right = composition_rect_at(1000, 800, 25.0, &settings);
+        let at_left = composition_rect_at(1000, 800, 75.0, &settings);
+        let bottom_phase = (std::f32::consts::FRAC_PI_2 - 1.2) / 0.73;
+        let top_phase = (std::f32::consts::FRAC_PI_2 * 3.0 - 1.2) / 0.73;
+        let at_bottom = composition_rect_at(1000, 800, bottom_phase / TAU * 100.0, &settings);
+        let at_top = composition_rect_at(1000, 800, top_phase / TAU * 100.0, &settings);
+
+        assert!((at_right[0] + at_right[2] - 1000.0).abs() < 0.001);
+        assert!(at_left[0].abs() < 0.001);
+        assert!((at_bottom[1] + at_bottom[3] - 800.0).abs() < 0.001);
+        assert!(at_top[1].abs() < 0.001);
+    }
 }

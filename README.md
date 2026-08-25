@@ -19,7 +19,7 @@ Select and configure windows on the primary display, then monitor them in a flex
 - Press `Ctrl+Alt+L` to edit the layout directly on the secondary display. Pointer-triggered hiding is temporarily suspended while editing.
 - Use original-color, grayscale, fixed monochrome, cycling monochrome, contour, or cycling-contour filters.
 - Adjust contour sensitivity and width for more legible small text.
-- Reduce brightness, drift the canvas, vary its size slightly, and schedule fully black rest periods.
+- Reduce brightness, drift the canvas with smooth screen-edge rebounds, vary its size slightly, and schedule fully black rest periods.
 - Switch live between a memory-saving one-megapixel-per-window capture limit and full source-window resolution.
 - Hide the monitoring canvas as soon as the pointer enters the selected display, and restore it when the pointer leaves.
 - Load the interface language from extensible JSON language packs.

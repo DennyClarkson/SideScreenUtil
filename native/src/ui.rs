@@ -1164,8 +1164,10 @@ impl App {
     }
 
     fn tick(&mut self) {
-        if self.window.size() != self.last_window_size {
-            self.resize_layout();
+        if let Some(size) = platform::logical_client_size(platform::hwnd(&self.window.handle)) {
+            if size != self.last_window_size {
+                self.resize_layout_for(size);
+            }
         }
         self.overlay.borrow_mut().tick();
         if self
@@ -1490,7 +1492,13 @@ impl App {
     }
 
     fn resize_layout(&mut self) {
-        let (window_width, window_height) = self.window.size();
+        let Some(size) = platform::logical_client_size(platform::hwnd(&self.window.handle)) else {
+            return;
+        };
+        self.resize_layout_for(size);
+    }
+
+    fn resize_layout_for(&mut self, (window_width, window_height): (u32, u32)) {
         self.last_window_size = (window_width, window_height);
         let width = window_width as i32;
         let height = window_height as i32;
