@@ -22,6 +22,7 @@ Select and configure windows on the primary display, then monitor them in a flex
 - Reduce brightness, drift the canvas with smooth screen-edge rebounds, vary its size slightly, and schedule fully black rest periods.
 - Switch live between a memory-saving one-megapixel-per-window capture limit and full source-window resolution.
 - Hide the monitoring canvas as soon as the pointer enters the selected display, and restore it when the pointer leaves.
+- Optionally start with Windows and launch silently into the system tray.
 - Load the interface language from extensible JSON language packs.
 
 ## Requirements
@@ -70,6 +71,10 @@ The **Protection** tab contains the capture-resolution switch:
 - **Full resolution** retains every source pixel and uses more memory.
 
 The switch takes effect on the next captured frame and does not require restarting monitoring mode.
+
+The **Settings** tab controls per-user Windows startup and silent startup. Silent startup keeps the
+control panel hidden on the next launch while leaving the system tray icon available. The same page
+shows the installed version, edition, platform, and license.
 
 ## Languages
 

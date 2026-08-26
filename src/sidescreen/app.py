@@ -37,6 +37,7 @@ def main(argv: list[str] | None = None) -> int:
         print(tr("platform.windows_only"), file=sys.stderr)
         return 2
     parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--startup", action="store_true")
     parser.add_argument("--smoke-test", action="store_true")
     parser.add_argument("--capture-smoke-test", action="store_true")
     arguments, qt_arguments = parser.parse_known_args(argv)
@@ -74,7 +75,9 @@ def main(argv: list[str] | None = None) -> int:
     elif arguments.smoke_test:
         QTimer.singleShot(300, window.quit_application)
     else:
-        window.show()
+        window.sync_startup_registration()
+        if not window.silent_start:
+            window.show()
     return application.exec()
 
 

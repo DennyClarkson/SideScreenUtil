@@ -24,6 +24,8 @@ The single executable includes its icon, Chinese and English translations, and a
 - Adjust brightness, contour parameters, canvas size, drift, size variation, black rests, FPS, and the full-resolution switch.
 - Reveal the normal desktop immediately when the pointer enters the target display.
 - Keep running in the notification area when the control window is closed.
+- Optionally start with Windows and launch directly into the notification area.
+- Show version, edition, platform, and license information on the Settings page.
 - Prefer Windows Graphics Capture and fall back to `PrintWindow` when WGC cannot start.
 - Discover and embed every JSON language file in `assets/i18n` during compilation.
 

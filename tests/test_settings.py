@@ -27,6 +27,8 @@ def test_settings_round_trip(tmp_path) -> None:
     path = tmp_path / "settings.json"
     store = SettingsStore(path)
     expected = AppSettings(
+        start_with_windows=True,
+        silent_start=True,
         screen_id="display-2",
         capture_fps=12,
         limit_capture_resolution=False,
@@ -35,6 +37,8 @@ def test_settings_round_trip(tmp_path) -> None:
     assert store.load() == expected
     assert json.loads(path.read_text(encoding="utf-8"))["screen_id"] == "display-2"
     assert json.loads(path.read_text(encoding="utf-8"))["limit_capture_resolution"] is False
+    assert json.loads(path.read_text(encoding="utf-8"))["start_with_windows"] is True
+    assert json.loads(path.read_text(encoding="utf-8"))["silent_start"] is True
 
 
 def test_invalid_settings_fall_back_to_defaults(tmp_path) -> None:

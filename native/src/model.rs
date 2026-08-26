@@ -48,6 +48,8 @@ pub enum FilterStyle {
 #[serde(default)]
 pub struct AppSettings {
     pub language: String,
+    pub start_with_windows: bool,
+    pub silent_start: bool,
     pub monitor_device: String,
     pub preview_scale: f32,
     pub move_seconds: u32,
@@ -69,6 +71,8 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             language: "zh_CN".to_owned(),
+            start_with_windows: false,
+            silent_start: false,
             monitor_device: String::new(),
             preview_scale: 0.72,
             move_seconds: 180,
@@ -144,4 +148,30 @@ pub struct FrameData {
     pub width: u32,
     pub height: u32,
     pub pixels: Vec<u8>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn older_settings_default_new_startup_preferences_to_disabled() {
+        let settings: AppSettings =
+            serde_json::from_str(r#"{"language":"en_US"}"#).expect("valid settings");
+        assert!(!settings.start_with_windows);
+        assert!(!settings.silent_start);
+    }
+
+    #[test]
+    fn startup_preferences_round_trip() {
+        let settings = AppSettings {
+            start_with_windows: true,
+            silent_start: true,
+            ..AppSettings::default()
+        };
+        let raw = serde_json::to_string(&settings).expect("serialize settings");
+        let restored: AppSettings = serde_json::from_str(&raw).expect("deserialize settings");
+        assert!(restored.start_with_windows);
+        assert!(restored.silent_start);
+    }
 }

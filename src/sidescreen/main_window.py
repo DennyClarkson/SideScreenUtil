@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import platform
 
 from PySide6.QtCore import QRect, QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QCloseEvent, QColor, QCursor, QIcon, QPixmap
@@ -26,6 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from sidescreen import __version__
 from sidescreen.controls import ValueSlider
 from sidescreen.displays import screen_id, screen_label
 from sidescreen.filters import FILTER_LABEL_KEYS, FilterConfig
@@ -39,6 +41,7 @@ from sidescreen.multi_capture import MultiCaptureManager
 from sidescreen.overlay import MonitorOverlay
 from sidescreen.resources import asset_path
 from sidescreen.settings_store import SettingsStore
+from sidescreen.startup import set_start_with_windows
 from sidescreen.win32_api import enumerate_windows, get_window_rect
 
 LOGGER = logging.getLogger(__name__)
@@ -236,12 +239,14 @@ class MainWindow(QMainWindow):
             tr("tabs.layout"),
             tr("tabs.filters"),
             tr("tabs.protection"),
+            tr("tabs.settings"),
         ]
         self._page_descriptions = [
             tr("page.monitor_description"),
             tr("page.layout_description"),
             tr("page.filters_description"),
             tr("page.protection_description"),
+            tr("page.settings_description"),
         ]
         for label in self._page_titles:
             item = QListWidgetItem(label)
@@ -272,6 +277,7 @@ class MainWindow(QMainWindow):
         self.pages.addWidget(self._build_layout_tab())
         self.pages.addWidget(self._build_filter_tab())
         self.pages.addWidget(self._build_protection_tab())
+        self.pages.addWidget(self._build_settings_tab())
         workspace_layout.addWidget(self.pages, 1)
 
         self.status_label = QLabel(tr("status.ready"))
@@ -487,6 +493,57 @@ class MainWindow(QMainWindow):
         outer.addStretch()
         return tab
 
+    def _build_settings_tab(self) -> QWidget:
+        tab = QWidget()
+        outer = QVBoxLayout(tab)
+        outer.setContentsMargins(0, 8, 0, 0)
+        outer.setSpacing(10)
+
+        startup_card = QFrame()
+        startup_card.setObjectName("settingCard")
+        startup_layout = QVBoxLayout(startup_card)
+        startup_layout.setContentsMargins(18, 16, 18, 16)
+        startup_layout.setSpacing(8)
+        startup_title = QLabel(tr("settings.startup_section"))
+        startup_title.setObjectName("section")
+        startup_layout.addWidget(startup_title)
+        self.start_with_windows_check = QCheckBox(tr("settings.start_with_windows"))
+        startup_layout.addWidget(self.start_with_windows_check)
+        startup_tip = QLabel(tr("settings.start_with_windows_tip"))
+        startup_tip.setWordWrap(True)
+        startup_tip.setProperty("class", "muted")
+        startup_tip.setContentsMargins(43, 0, 0, 4)
+        startup_layout.addWidget(startup_tip)
+        self.silent_start_check = QCheckBox(tr("settings.silent_start"))
+        startup_layout.addWidget(self.silent_start_check)
+        silent_tip = QLabel(tr("settings.silent_start_tip"))
+        silent_tip.setWordWrap(True)
+        silent_tip.setProperty("class", "muted")
+        silent_tip.setContentsMargins(43, 0, 0, 0)
+        startup_layout.addWidget(silent_tip)
+        outer.addWidget(startup_card)
+
+        about_card = QFrame()
+        about_card.setObjectName("settingCard")
+        about_layout = QFormLayout(about_card)
+        about_layout.setContentsMargins(18, 16, 18, 16)
+        about_layout.setHorizontalSpacing(28)
+        about_layout.setVerticalSpacing(12)
+        about_title = QLabel(tr("settings.about_section"))
+        about_title.setObjectName("section")
+        about_layout.addRow(about_title)
+        about_layout.addRow(tr("settings.product"), QLabel("SideScreenUtil"))
+        about_layout.addRow(tr("settings.version"), QLabel(__version__))
+        about_layout.addRow(tr("settings.edition"), QLabel(tr("settings.edition_full")))
+        about_layout.addRow(
+            tr("settings.platform"),
+            QLabel(f"Windows · {platform.machine() or 'x64'}"),
+        )
+        about_layout.addRow(tr("settings.license"), QLabel("MIT"))
+        outer.addWidget(about_card)
+        outer.addStretch()
+        return tab
+
     def _build_tray(self) -> None:
         icon = QIcon(str(asset_path("sidescreen.ico")))
         self.setWindowIcon(icon)
@@ -532,6 +589,10 @@ class MainWindow(QMainWindow):
             control.valueChanged.connect(self._protection_changed)
         self.fps_spin.valueChanged.connect(lambda _value: self._selection_changed())
         self.limit_resolution_check.stateChanged.connect(self._resolution_limit_changed)
+        self.start_with_windows_check.stateChanged.connect(
+            self._start_with_windows_changed
+        )
+        self.silent_start_check.stateChanged.connect(self._silent_start_changed)
         self._captures.frame_ready.connect(self._overlay.set_frame)
         self._captures.backends_changed.connect(self._backends_changed)
         self._captures.warning.connect(self._capture_warning)
@@ -549,6 +610,8 @@ class MainWindow(QMainWindow):
         self.blank_seconds_spin.setValue(settings.blank_seconds)
         self.fps_spin.setValue(settings.capture_fps)
         self.limit_resolution_check.setChecked(settings.limit_capture_resolution)
+        self.start_with_windows_check.setChecked(settings.start_with_windows)
+        self.silent_start_check.setChecked(settings.silent_start)
         self._update_resolution_limit_text()
         self.brightness_spin.setValue(settings.brightness * 100)
         self.hue_cycle_spin.setValue(settings.hue_cycle_seconds)
@@ -569,6 +632,8 @@ class MainWindow(QMainWindow):
         screen = self.screen_combo.currentData()
         return AppSettings(
             language=str(self.language_combo.currentData() or current_language()),
+            start_with_windows=self.start_with_windows_check.isChecked(),
+            silent_start=self.silent_start_check.isChecked(),
             screen_id=screen_id(screen) if screen is not None else "",
             preview_scale=self.scale_spin.value() / 100,
             move_seconds=self.move_spin.value(),
@@ -841,6 +906,33 @@ class MainWindow(QMainWindow):
             tr("language.changed_body"),
         )
 
+    def _start_with_windows_changed(self, _state: object = None) -> None:
+        if self._loading:
+            return
+        enabled = self.start_with_windows_check.isChecked()
+        previous = self._settings.start_with_windows
+        try:
+            set_start_with_windows(enabled)
+        except OSError as error:
+            LOGGER.exception("Unable to update the Windows startup entry")
+            self.start_with_windows_check.blockSignals(True)
+            self.start_with_windows_check.setChecked(previous)
+            self.start_with_windows_check.blockSignals(False)
+            QMessageBox.warning(
+                self,
+                tr("settings.startup_error_title"),
+                tr("settings.startup_error_body", error=str(error)),
+            )
+            return
+        self._persist_current_settings()
+        self.status_label.setText(tr("settings.saved"))
+
+    def _silent_start_changed(self, _state: object = None) -> None:
+        if self._loading:
+            return
+        self._persist_current_settings()
+        self.status_label.setText(tr("settings.saved_next_start"))
+
     def _persist_current_settings(self) -> None:
         if self._loading:
             return
@@ -849,6 +941,16 @@ class MainWindow(QMainWindow):
             self._store.save(self._settings)
         except OSError:
             LOGGER.exception("Unable to save settings")
+
+    @property
+    def silent_start(self) -> bool:
+        return self._settings.silent_start
+
+    def sync_startup_registration(self) -> None:
+        try:
+            set_start_with_windows(self._settings.start_with_windows)
+        except OSError:
+            LOGGER.exception("Unable to synchronize the Windows startup entry")
 
     def toggle_active(self) -> None:
         if self._active:

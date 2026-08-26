@@ -19,6 +19,8 @@ class WindowInfo:
 @dataclass(slots=True)
 class AppSettings:
     language: str = "zh_CN"
+    start_with_windows: bool = False
+    silent_start: bool = False
     screen_id: str = ""
     preview_scale: float = 0.72
     move_seconds: int = 180
@@ -38,6 +40,8 @@ class AppSettings:
     def normalized(self) -> AppSettings:
         return AppSettings(
             language=str(self.language or "zh_CN"),
+            start_with_windows=bool(self.start_with_windows),
+            silent_start=bool(self.silent_start),
             screen_id=str(self.screen_id),
             preview_scale=min(0.90, max(0.20, float(self.preview_scale))),
             move_seconds=min(900, max(30, int(self.move_seconds))),

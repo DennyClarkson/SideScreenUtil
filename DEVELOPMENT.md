@@ -26,8 +26,13 @@ The main components are:
 - `src/sidescreen/layouts.py`: normalized grid, strip, source-relative, and clamping functions.
 - `src/sidescreen/i18n.py`: JSON language discovery, fallback, and placeholder formatting.
 - `src/sidescreen/models.py`: serializable application settings and window metadata.
+- `src/sidescreen/startup.py`: current-user Windows startup registration for the full edition.
 
 The overlay layout uses normalized rectangles in the `[0, 1]` coordinate space. The complete composition can drift to the physical screen edges, rebound, and scale without changing the relative geometry of its source windows.
+
+Each edition owns a separate value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
+The stored command includes `--startup`, and the persisted `silent_start` setting decides whether
+the control panel is initially visible. The tray remains available when the window starts hidden.
 
 ## Environment setup
 

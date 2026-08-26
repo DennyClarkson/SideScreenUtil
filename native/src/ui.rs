@@ -160,6 +160,23 @@ struct ProtectionPage {
     resolution_tip: nwg::Label,
 }
 
+#[derive(Default)]
+struct SettingsPage {
+    frame: nwg::Frame,
+    title: nwg::Label,
+    description: nwg::Label,
+    start_with_windows: nwg::CheckBox,
+    start_with_windows_tip: nwg::Label,
+    silent_start: nwg::CheckBox,
+    silent_start_tip: nwg::Label,
+    about_title: nwg::Label,
+    product: nwg::Label,
+    version: nwg::Label,
+    edition: nwg::Label,
+    platform: nwg::Label,
+    license: nwg::Label,
+}
+
 pub struct App {
     window: nwg::Window,
     heading: nwg::Label,
@@ -171,10 +188,12 @@ pub struct App {
     nav_layout: nwg::Button,
     nav_filters: nwg::Button,
     nav_protection: nwg::Button,
+    nav_settings: nwg::Button,
     monitor_page: MonitorPage,
     layout_page: LayoutPage,
     filter_page: FilterPage,
     protection_page: ProtectionPage,
+    settings_page: SettingsPage,
     start_stop: nwg::Button,
     pause_resume: nwg::Button,
     status: nwg::Label,
@@ -225,10 +244,12 @@ impl App {
             nav_layout: Default::default(),
             nav_filters: Default::default(),
             nav_protection: Default::default(),
+            nav_settings: Default::default(),
             monitor_page: Default::default(),
             layout_page: Default::default(),
             filter_page: Default::default(),
             protection_page: Default::default(),
+            settings_page: Default::default(),
             start_stop: Default::default(),
             pause_resume: Default::default(),
             status: Default::default(),
@@ -311,7 +332,7 @@ impl App {
             .center(true)
             .title("SideScreenUtil")
             .icon(Some(&self.icon))
-            .flags(nwg::WindowFlags::MAIN_WINDOW | nwg::WindowFlags::VISIBLE)
+            .flags(main_window_flags(self.settings.silent_start))
             .build(&mut self.window)?;
         label(
             &mut self.heading,
@@ -378,10 +399,18 @@ impl App {
             (202, 44),
             &self.window,
         )?;
+        button(
+            &mut self.nav_settings,
+            "",
+            (24, 315),
+            (202, 44),
+            &self.window,
+        )?;
         self.build_monitor_page()?;
         self.build_layout_page()?;
         self.build_filter_page()?;
         self.build_protection_page()?;
+        self.build_settings_page()?;
         button(
             &mut self.start_stop,
             "",
@@ -783,6 +812,130 @@ impl App {
         Ok(())
     }
 
+    fn build_settings_page(&mut self) -> Result<(), nwg::NwgError> {
+        frame(&mut self.settings_page.frame, &self.window)?;
+        let p = &self.settings_page.frame;
+        label(
+            &mut self.settings_page.title,
+            "",
+            (28, 22),
+            (500, 32),
+            p,
+            Some(&self.page_font),
+            TEXT,
+        )?;
+        label(
+            &mut self.settings_page.description,
+            "",
+            (28, 54),
+            (700, 24),
+            p,
+            None,
+            MUTED,
+        )?;
+        nwg::CheckBox::builder()
+            .text("")
+            .position((28, 104))
+            .size((700, 34))
+            .background_color(Some(CARD))
+            .parent(p)
+            .build(&mut self.settings_page.start_with_windows)?;
+        self.settings_page.start_with_windows.set_check_state(
+            if self.settings.start_with_windows {
+                nwg::CheckBoxState::Checked
+            } else {
+                nwg::CheckBoxState::Unchecked
+            },
+        );
+        label(
+            &mut self.settings_page.start_with_windows_tip,
+            "",
+            (52, 140),
+            (676, 42),
+            p,
+            None,
+            MUTED,
+        )?;
+        nwg::CheckBox::builder()
+            .text("")
+            .position((28, 194))
+            .size((700, 34))
+            .background_color(Some(CARD))
+            .parent(p)
+            .build(&mut self.settings_page.silent_start)?;
+        self.settings_page
+            .silent_start
+            .set_check_state(if self.settings.silent_start {
+                nwg::CheckBoxState::Checked
+            } else {
+                nwg::CheckBoxState::Unchecked
+            });
+        label(
+            &mut self.settings_page.silent_start_tip,
+            "",
+            (52, 230),
+            (676, 42),
+            p,
+            None,
+            MUTED,
+        )?;
+        label(
+            &mut self.settings_page.about_title,
+            "",
+            (28, 302),
+            (700, 28),
+            p,
+            None,
+            TEXT,
+        )?;
+        label(
+            &mut self.settings_page.product,
+            "",
+            (28, 344),
+            (700, 24),
+            p,
+            None,
+            TEXT,
+        )?;
+        label(
+            &mut self.settings_page.version,
+            "",
+            (28, 380),
+            (700, 24),
+            p,
+            None,
+            TEXT,
+        )?;
+        label(
+            &mut self.settings_page.edition,
+            "",
+            (28, 416),
+            (700, 24),
+            p,
+            None,
+            TEXT,
+        )?;
+        label(
+            &mut self.settings_page.platform,
+            "",
+            (28, 452),
+            (700, 24),
+            p,
+            None,
+            TEXT,
+        )?;
+        label(
+            &mut self.settings_page.license,
+            "",
+            (28, 488),
+            (700, 24),
+            p,
+            None,
+            TEXT,
+        )?;
+        Ok(())
+    }
+
     fn bind_events(app: &Rc<RefCell<Self>>) -> Result<(), nwg::NwgError> {
         let weak: Weak<RefCell<Self>> = Rc::downgrade(app);
         let window_handle = app.borrow().window.handle;
@@ -848,6 +1001,7 @@ impl App {
                 app.layout_page.frame.handle,
                 app.filter_page.frame.handle,
                 app.protection_page.frame.handle,
+                app.settings_page.frame.handle,
             ]
         };
         for (index, handle) in frame_handles.into_iter().enumerate() {
@@ -891,6 +1045,8 @@ impl App {
                 self.show_page(2);
             } else if handle == self.nav_protection.handle {
                 self.show_page(3);
+            } else if handle == self.nav_settings.handle {
+                self.show_page(4);
             } else if handle == self.monitor_page.refresh_monitors.handle {
                 self.refresh_monitors();
             } else if handle == self.monitor_page.refresh_windows.handle {
@@ -918,6 +1074,10 @@ impl App {
                 self.toggle_pause();
             } else if handle == self.protection_page.resolution_limit.handle {
                 self.controls_changed(true);
+            } else if handle == self.settings_page.start_with_windows.handle {
+                self.startup_settings_changed(true);
+            } else if handle == self.settings_page.silent_start.handle {
+                self.startup_settings_changed(false);
             }
         } else if event == nwg::Event::OnComboxBoxSelection {
             if handle == self.language.handle {
@@ -1114,7 +1274,44 @@ impl App {
         let _ = settings::save(&self.settings);
     }
 
+    fn startup_settings_changed(&mut self, update_registry: bool) {
+        let start_with_windows =
+            self.settings_page.start_with_windows.check_state() == nwg::CheckBoxState::Checked;
+        let silent_start =
+            self.settings_page.silent_start.check_state() == nwg::CheckBoxState::Checked;
+        if update_registry && start_with_windows != self.settings.start_with_windows {
+            if let Err(error) = settings::sync_start_with_windows(start_with_windows) {
+                self.settings_page.start_with_windows.set_check_state(
+                    if self.settings.start_with_windows {
+                        nwg::CheckBoxState::Checked
+                    } else {
+                        nwg::CheckBoxState::Unchecked
+                    },
+                );
+                nwg::error_message(
+                    &self.t("settings.startup_error_title"),
+                    &self
+                        .t("settings.startup_error_body")
+                        .replace("{error}", &error),
+                );
+                return;
+            }
+        }
+        self.settings.start_with_windows = start_with_windows;
+        self.settings.silent_start = silent_start;
+        let _ = settings::save(&self.settings);
+        self.status.set_text(&self.t(if update_registry {
+            "settings.saved"
+        } else {
+            "settings.saved_next_start"
+        }));
+    }
+
     fn pull_settings(&mut self) {
+        self.settings.start_with_windows =
+            self.settings_page.start_with_windows.check_state() == nwg::CheckBoxState::Checked;
+        self.settings.silent_start =
+            self.settings_page.silent_start.check_state() == nwg::CheckBoxState::Checked;
         self.settings.monitor_device = self
             .selected_monitor()
             .map(|m| m.device.clone())
@@ -1287,6 +1484,7 @@ impl App {
         self.nav_layout.set_text(&self.t("tabs.layout"));
         self.nav_filters.set_text(&self.t("tabs.filters"));
         self.nav_protection.set_text(&self.t("tabs.protection"));
+        self.nav_settings.set_text(&self.t("tabs.settings"));
         self.update_nav_labels();
         self.monitor_page.title.set_text(&self.t("source.section"));
         self.monitor_page
@@ -1400,6 +1598,46 @@ impl App {
         self.protection_page
             .resolution_tip
             .set_text(&self.t("protection.resolution_tip"));
+        self.settings_page.title.set_text(&self.t("tabs.settings"));
+        self.settings_page
+            .description
+            .set_text(&self.t("page.settings_description"));
+        self.settings_page
+            .start_with_windows
+            .set_text(&self.t("settings.start_with_windows"));
+        self.settings_page
+            .start_with_windows_tip
+            .set_text(&self.t("settings.start_with_windows_tip"));
+        self.settings_page
+            .silent_start
+            .set_text(&self.t("settings.silent_start"));
+        self.settings_page
+            .silent_start_tip
+            .set_text(&self.t("settings.silent_start_tip"));
+        self.settings_page
+            .about_title
+            .set_text(&self.t("settings.about_section"));
+        self.settings_page
+            .product
+            .set_text(&format!("{}:  SideScreenUtil", self.t("settings.product")));
+        self.settings_page.version.set_text(&format!(
+            "{}:  {}",
+            self.t("settings.version"),
+            env!("CARGO_PKG_VERSION")
+        ));
+        self.settings_page.edition.set_text(&format!(
+            "{}:  {}",
+            self.t("settings.edition"),
+            self.t("settings.edition_native")
+        ));
+        self.settings_page.platform.set_text(&format!(
+            "{}:  Windows · {}",
+            self.t("settings.platform"),
+            std::env::consts::ARCH
+        ));
+        self.settings_page
+            .license
+            .set_text(&format!("{}:  MIT", self.t("settings.license")));
         set_menu_text(&self.tray_show, &self.t("tray.show"));
         set_menu_text(
             &self.tray_pause,
@@ -1540,6 +1778,7 @@ impl App {
             &self.layout_page.frame,
             &self.filter_page.frame,
             &self.protection_page.frame,
+            &self.settings_page.frame,
         ] {
             batch.place(&page.handle, 246, 104, page_width, page_height);
         }
@@ -1687,6 +1926,49 @@ impl App {
             50
         );
         batch.finish();
+        batch = LayoutBatch::new(platform::hwnd(&self.settings_page.frame.handle), 14);
+
+        place!(self.settings_page.title, 28, 22, page_width - 56, 36);
+        place!(self.settings_page.description, 28, 54, page_width - 56, 28);
+        place!(
+            self.settings_page.start_with_windows,
+            28,
+            104,
+            page_width - 86,
+            34
+        );
+        place!(
+            self.settings_page.start_with_windows_tip,
+            52,
+            140,
+            page_width - 110,
+            42
+        );
+        place!(
+            self.settings_page.silent_start,
+            28,
+            194,
+            page_width - 86,
+            34
+        );
+        place!(
+            self.settings_page.silent_start_tip,
+            52,
+            230,
+            page_width - 110,
+            42
+        );
+        for (control, y) in [
+            (&self.settings_page.about_title, 302),
+            (&self.settings_page.product, 344),
+            (&self.settings_page.version, 380),
+            (&self.settings_page.edition, 416),
+            (&self.settings_page.platform, 452),
+            (&self.settings_page.license, 488),
+        ] {
+            batch.place(&control.handle, 28, y, page_width - 86, 28);
+        }
+        batch.finish();
     }
 
     fn show_page(&mut self, page: usize) {
@@ -1695,6 +1977,7 @@ impl App {
         self.layout_page.frame.set_visible(page == 1);
         self.filter_page.frame.set_visible(page == 2);
         self.protection_page.frame.set_visible(page == 3);
+        self.settings_page.frame.set_visible(page == 4);
         self.update_nav_labels();
     }
     fn update_nav_labels(&self) {
@@ -1703,12 +1986,14 @@ impl App {
             self.t("tabs.layout"),
             self.t("tabs.filters"),
             self.t("tabs.protection"),
+            self.t("tabs.settings"),
         ];
         let buttons = [
             &self.nav_monitor,
             &self.nav_layout,
             &self.nav_filters,
             &self.nav_protection,
+            &self.nav_settings,
         ];
         for (index, button) in buttons.into_iter().enumerate() {
             let text = if index == self.page {
@@ -1746,6 +2031,14 @@ fn frame(out: &mut nwg::Frame, parent: &nwg::Window) -> Result<(), nwg::NwgError
         .size((786, 550))
         .parent(parent)
         .build(out)
+}
+
+fn main_window_flags(silent_start: bool) -> nwg::WindowFlags {
+    if silent_start {
+        nwg::WindowFlags::MAIN_WINDOW
+    } else {
+        nwg::WindowFlags::MAIN_WINDOW | nwg::WindowFlags::VISIBLE
+    }
 }
 fn label<C: Into<nwg::ControlHandle> + Copy>(
     out: &mut nwg::Label,
@@ -1944,7 +2237,15 @@ fn filter_from_index(value: usize) -> FilterStyle {
 }
 
 pub fn run() -> Result<(), nwg::NwgError> {
-    let _app = App::build()?;
+    let app = App::build()?;
+    let start_with_windows = app.borrow().settings.start_with_windows;
+    if let Err(error) = settings::sync_start_with_windows(start_with_windows) {
+        let message = app
+            .borrow()
+            .t("settings.startup_error_body")
+            .replace("{error}", &error);
+        app.borrow().status.set_text(&message);
+    }
     nwg::dispatch_thread_events();
     Ok(())
 }
@@ -1961,6 +2262,7 @@ pub fn smoke_test() -> Result<(), String> {
         app.show_page(1);
         app.show_page(2);
         app.show_page(3);
+        app.show_page(4);
         app.show_page(0);
         app.window.set_size(1280, 840);
         app.resize_layout();
@@ -1998,4 +2300,15 @@ pub fn smoke_test() -> Result<(), String> {
     }
     settings::save(&original)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn silent_start_omits_the_visible_window_flag() {
+        assert!(!main_window_flags(true).contains(nwg::WindowFlags::VISIBLE));
+        assert!(main_window_flags(false).contains(nwg::WindowFlags::VISIBLE));
+    }
 }
