@@ -105,8 +105,7 @@ jobs:
           # Run the non-LTO binary on the hosted, headless desktop. The locally
           # shipped gnullvm executable is smoke-tested separately by build-native.ps1.
           $Exe = ".\native\target\x86_64-pc-windows-msvc\debug\sidescreenutil-native.exe"
-          $env:SIDESCREENUTIL_BINARY_SMOKE = "1"
-          $Process = Start-Process -FilePath $Exe -PassThru
+          $Process = Start-Process -FilePath $Exe -ArgumentList '--binary-smoke-test' -PassThru
           Start-Sleep -Seconds 2
           $Process.Refresh()
           Write-Host "Native process state: exited=$($Process.HasExited), title='$($Process.MainWindowTitle)'"
