@@ -314,7 +314,6 @@ dependencies = [
  "serde_json",
  "winapi",
  "windows-capture",
- "winreg",
 ]
 
 [[package]]
