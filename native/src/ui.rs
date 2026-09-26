@@ -31,6 +31,7 @@ const BG: [u8; 3] = [31, 31, 31];
 const CARD: [u8; 3] = [39, 39, 39];
 const TEXT: [u8; 3] = [248, 248, 248];
 const MUTED: [u8; 3] = [166, 166, 166];
+const POSITION_HOTKEY_ID: i32 = 0x5344;
 const TEXT_COLOR_PROPERTY: *const u16 = 0x53A0_usize as *const u16;
 
 struct LayoutBatch {
@@ -89,6 +90,9 @@ struct MonitorPage {
     monitor_label: nwg::Label,
     monitor_combo: nwg::ComboBox<String>,
     refresh_monitors: nwg::Button,
+    output_label: nwg::Label,
+    output_combo: nwg::ComboBox<String>,
+    position: nwg::Button,
     windows_label: nwg::Label,
     windows_list: nwg::ListBox<String>,
     refresh_windows: nwg::Button,
@@ -302,6 +306,12 @@ impl App {
                     platform::HOTKEY_MODIFIERS,
                     b'L' as u32,
                 );
+                RegisterHotKey(
+                    hwnd,
+                    POSITION_HOTKEY_ID,
+                    platform::HOTKEY_MODIFIERS,
+                    b'P' as u32,
+                );
             }
         }
         Ok(app)
@@ -507,6 +517,27 @@ impl App {
             "",
             (650, 126),
             (108, 34),
+            p,
+        )?;
+        label(
+            &mut self.monitor_page.output_label,
+            "",
+            (28, 172),
+            (220, 24),
+            p,
+            None,
+            TEXT,
+        )?;
+        nwg::ComboBox::builder()
+            .position((28, 200))
+            .size((350, 34))
+            .parent(p)
+            .build(&mut self.monitor_page.output_combo)?;
+        button(
+            &mut self.monitor_page.position,
+            "",
+            (400, 200),
+            (320, 34),
             p,
         )?;
         label(
@@ -958,10 +989,16 @@ impl App {
                 info.ptMinTrackSize.x = 900 * dpi / 96;
                 info.ptMinTrackSize.y = 760 * dpi / 96;
                 return Some(0);
-            } else if msg == WM_HOTKEY && w == platform::HOTKEY_ID as usize {
+            } else if msg == WM_HOTKEY
+                && (w == platform::HOTKEY_ID as usize || w == POSITION_HOTKEY_ID as usize)
+            {
                 if let Some(app) = weak.upgrade() {
                     if let Ok(mut app) = app.try_borrow_mut() {
-                        app.toggle_layout_edit();
+                        if w == POSITION_HOTKEY_ID as usize {
+                            app.toggle_positioning();
+                        } else {
+                            app.toggle_layout_edit();
+                        }
                     }
                 }
             } else if msg == WM_ERASEBKGND {
@@ -1049,6 +1086,8 @@ impl App {
                 self.show_page(4);
             } else if handle == self.monitor_page.refresh_monitors.handle {
                 self.refresh_monitors();
+            } else if handle == self.monitor_page.position.handle {
+                self.toggle_positioning();
             } else if handle == self.monitor_page.refresh_windows.handle {
                 let s = self.selected_handles();
                 self.refresh_windows(s);
@@ -1084,6 +1123,11 @@ impl App {
                 self.language_changed();
             } else if handle == self.monitor_page.monitor_combo.handle {
                 self.monitor_changed();
+            } else if handle == self.monitor_page.output_combo.handle {
+                self.finish_layout_edit();
+                self.save_window_rect();
+                self.controls_changed(false);
+                self.update_state();
             } else if handle == self.layout_page.kind_combo.handle {
                 self.layout_changed();
             } else if handle == self.filter_page.kind_combo.handle {
@@ -1131,7 +1175,9 @@ impl App {
     }
 
     fn stop(&mut self) {
+        self.finish_layout_edit();
         self.overlay.borrow_mut().deactivate();
+        self.save_window_rect();
         capture::stop_all(&mut self.captures);
         self.shared.clear();
         self.pending_capture_restart = None;
@@ -1145,9 +1191,11 @@ impl App {
         if !self.active {
             return;
         }
+        self.finish_layout_edit();
         self.paused = !self.paused;
         if self.paused {
             self.overlay.borrow_mut().deactivate();
+            self.save_window_rect();
         } else if let Some(monitor) = self.selected_monitor().cloned() {
             self.overlay
                 .borrow_mut()
@@ -1308,6 +1356,8 @@ impl App {
     }
 
     fn pull_settings(&mut self) {
+        self.save_window_rect();
+        self.settings.windowed = self.monitor_page.output_combo.selection() == Some(1);
         self.settings.start_with_windows =
             self.settings_page.start_with_windows.check_state() == nwg::CheckBoxState::Checked;
         self.settings.silent_start =
@@ -1344,7 +1394,15 @@ impl App {
     }
 
     fn toggle_layout_edit(&mut self) {
+        if !self.active {
+            return;
+        }
+        if self.paused {
+            self.toggle_pause();
+        }
         let editing = self.overlay.borrow_mut().toggle_editing();
+        self.save_window_rect();
+        self.update_position_button();
         if editing {
             self.state.set_text(&self.t("state.editing"));
             self.layout_page.edit.set_text(&self.t("layout.finish"));
@@ -1360,6 +1418,46 @@ impl App {
         }
     }
 
+    fn finish_layout_edit(&mut self) {
+        if self.overlay.borrow().is_editing() {
+            self.toggle_layout_edit();
+        }
+    }
+
+    fn update_position_button(&self) {
+        self.monitor_page
+            .position
+            .set_enabled(self.active && self.settings.windowed);
+        self.monitor_page
+            .position
+            .set_text(&self.t(if self.overlay.borrow().is_positioning() {
+                "output.finish"
+            } else {
+                "output.position"
+            }));
+    }
+
+    fn save_window_rect(&mut self) {
+        let rect = self.overlay.borrow_mut().take_window_rect();
+        if let Some(rect) = rect {
+            self.settings.window_rect = rect;
+            let _ = settings::save(&self.settings);
+        }
+    }
+
+    fn toggle_positioning(&mut self) {
+        if !self.active || !self.settings.windowed {
+            return;
+        }
+        if self.paused {
+            self.toggle_pause();
+        }
+        self.finish_layout_edit();
+        self.overlay.borrow_mut().toggle_positioning();
+        self.save_window_rect();
+        self.update_state();
+    }
+
     fn tick(&mut self) {
         if let Some(size) = platform::logical_client_size(platform::hwnd(&self.window.handle)) {
             if size != self.last_window_size {
@@ -1367,6 +1465,7 @@ impl App {
             }
         }
         self.overlay.borrow_mut().tick();
+        self.save_window_rect();
         if self
             .pending_capture_restart
             .is_some_and(|due| Instant::now() >= due)
@@ -1506,7 +1605,16 @@ impl App {
             .select_all
             .set_text(&self.t("source.select_all"));
         self.monitor_page.clear.set_text(&self.t("source.clear"));
-        self.monitor_page.hint.set_text(&self.t("source.hint"));
+        self.monitor_page.hint.set_text(&self.t("output.help"));
+        self.monitor_page
+            .output_label
+            .set_text(&self.t("output.mode"));
+        self.monitor_page
+            .output_combo
+            .set_collection(vec![self.t("output.fullscreen"), self.t("output.windowed")]);
+        self.monitor_page
+            .output_combo
+            .set_selection(Some(usize::from(self.settings.windowed)));
         self.layout_page.title.set_text(&self.t("tabs.layout"));
         self.layout_page
             .description
@@ -1652,6 +1760,7 @@ impl App {
     }
 
     fn update_state(&self) {
+        self.update_position_button();
         if !self.active {
             self.state.set_text(&self.t("state.idle"));
             self.start_stop.set_text(&self.t("action.start"));
@@ -1687,11 +1796,7 @@ impl App {
                 }),
             );
             self.tray_pause.set_enabled(true);
-            self.status.set_text(if self.is_zh() {
-                "运行中 · 鼠标移入目标屏幕会立即显示原桌面"
-            } else {
-                "Active · Move the pointer onto the target display to reveal the desktop"
-            });
+            self.status.set_text(&self.t("output.active_hint"));
         }
     }
 
@@ -1785,9 +1890,25 @@ impl App {
         batch.finish();
         batch = LayoutBatch::new(platform::hwnd(&self.monitor_page.frame.handle), 12);
 
-        let monitor_actions_y = page_height - 110;
+        let monitor_actions_y = page_height - 134;
         place!(self.monitor_page.title, 28, 22, page_width - 56, 36);
         place!(self.monitor_page.description, 28, 54, page_width - 56, 28);
+        place!(self.monitor_page.output_label, 28, 172, page_width - 56, 24);
+        place!(
+            self.monitor_page.output_combo,
+            28,
+            200,
+            page_width - 380,
+            34
+        );
+        place!(self.monitor_page.position, page_width - 340, 200, 312, 34);
+        place!(
+            self.monitor_page.windows_label,
+            28,
+            248,
+            page_width - 56,
+            24
+        );
         place!(
             self.monitor_page.monitor_combo,
             28,
@@ -1805,9 +1926,9 @@ impl App {
         place!(
             self.monitor_page.windows_list,
             28,
-            208,
+            278,
             page_width - 56,
-            page_height - 330
+            page_height - 424
         );
         place!(
             self.monitor_page.refresh_windows,
@@ -1827,9 +1948,9 @@ impl App {
         place!(
             self.monitor_page.hint,
             28,
-            page_height - 58,
+            page_height - 82,
             page_width - 56,
-            48
+            72
         );
         batch.finish();
         batch = LayoutBatch::new(platform::hwnd(&self.layout_page.frame.handle), 8);
@@ -2017,9 +2138,11 @@ impl App {
     fn shutdown(&mut self) {
         capture::stop_all(&mut self.captures);
         self.overlay.borrow_mut().deactivate();
+        self.save_window_rect();
         let _ = settings::save(&self.settings);
         unsafe {
             UnregisterHotKey(platform::hwnd(&self.window.handle), platform::HOTKEY_ID);
+            UnregisterHotKey(platform::hwnd(&self.window.handle), POSITION_HOTKEY_ID);
         }
     }
 }
@@ -2278,6 +2401,24 @@ pub fn smoke_test() -> Result<(), String> {
         app.start();
         if !app.active || !app.overlay.borrow().is_active() {
             return Err("Black-only secondary-screen mode did not activate".to_owned());
+        }
+        app.monitor_page.output_combo.set_selection(Some(1));
+        app.controls_changed(false);
+        app.toggle_positioning();
+        if !app.overlay.borrow().is_positioning() {
+            return Err("Black-only protection window cannot be positioned".to_owned());
+        }
+        app.toggle_pause();
+        if app.overlay.borrow().is_positioning() || !app.paused {
+            return Err("Pause did not exit protection-window positioning".to_owned());
+        }
+        app.toggle_pause();
+        app.toggle_positioning();
+        app.toggle_positioning();
+        app.monitor_page.output_combo.set_selection(Some(0));
+        app.controls_changed(false);
+        if app.overlay.borrow().is_positioning() || app.settings.windowed {
+            return Err("Window-to-fullscreen switch failed".to_owned());
         }
         app.filter_page.kind_combo.set_selection(Some(1));
         app.controls_changed(true);

@@ -9,10 +9,12 @@ class GlobalLayoutHotkey(QObject):
     """Edge-triggered Ctrl+Alt+L watcher that works outside the control window."""
 
     activated = Signal()
+    position_activated = Signal()
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._was_down = False
+        self._position_was_down = False
         self._timer = QTimer(self)
         self._timer.setInterval(35)
         self._timer.timeout.connect(self._poll)
@@ -27,3 +29,7 @@ class GlobalLayoutHotkey(QObject):
         if pressed and not self._was_down:
             self.activated.emit()
         self._was_down = pressed
+        position_pressed = self._down(0x11) and self._down(0x12) and self._down(ord("P"))
+        if position_pressed and not self._position_was_down:
+            self.position_activated.emit()
+        self._position_was_down = position_pressed

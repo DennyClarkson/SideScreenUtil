@@ -1,6 +1,14 @@
 {
   "meta": {"code": "en_US", "name": "English"},
   "strings": {
+    "output.mode": "Display mode",
+    "output.fullscreen": "Full-screen protection",
+    "output.windowed": "Borderless protection window",
+    "output.position": "Position window · Ctrl+Alt+P",
+    "output.finish": "Finish positioning · Ctrl+Alt+P",
+    "output.help": "Window mode: press Ctrl+Alt+P to drag the window or resize its bottom-right corner; press again to save. Normally, entering the protected area reveals the desktop.",
+    "output.position_banner": "Drag to move · Bottom-right to resize\nCtrl+Alt+P to save",
+    "output.active_hint": "Active · Enter the protected area to reveal the desktop; leave to restore",
     "app.window_title": "SideScreenUtil · OLED Multi-Window Monitor",
     "app.subtitle": "OLED monitoring canvas · Live layouts · Pixel-friendly filters",
     "common.refresh": "Refresh",

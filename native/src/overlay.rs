@@ -16,12 +16,14 @@ use winapi::um::wingdi::{
     TRANSPARENT,
 };
 use winapi::um::winuser::{
-    DT_CENTER, DT_SINGLELINE, DT_VCENTER, DrawTextW, FillRect, GetClientRect, GetCursorPos,
-    HWND_TOPMOST, InvalidateRect, ReleaseCapture, SWP_NOACTIVATE, SWP_SHOWWINDOW, ScreenToClient,
-    SetCapture, SetWindowPos, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    DT_CENTER, DT_WORDBREAK, DrawTextW, FillRect, GetClientRect, GetCursorPos, HWND_TOPMOST,
+    IDC_SIZEALL, IDC_SIZENWSE, InvalidateRect, LoadCursorW, ReleaseCapture, SWP_NOACTIVATE,
+    SWP_SHOWWINDOW, ScreenToClient, SetCapture, SetCursor, SetWindowPos, WS_EX_LAYERED,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
 
 use crate::capture::SharedCaptureState;
+use crate::i18n::Translations;
 use crate::model::{AppSettings, MonitorInfo, RectF};
 use crate::platform;
 
@@ -103,6 +105,10 @@ pub struct Overlay {
     active: bool,
     pointer_suppressed: bool,
     editing: bool,
+    positioning: bool,
+    window_drag: Option<([i32; 2], [i32; 4], bool)>,
+    pending_window_rect: Option<[f32; 4]>,
+    banner_text: [Vec<u16>; 2],
     selected: Option<isize>,
     edit_action: EditAction,
     drag_offset: [f32; 2],
@@ -136,6 +142,10 @@ impl Overlay {
             active: false,
             pointer_suppressed: false,
             editing: false,
+            positioning: false,
+            window_drag: None,
+            pending_window_rect: None,
+            banner_text: [Vec::new(), Vec::new()],
             selected: None,
             edit_action: EditAction::None,
             drag_offset: [0.0, 0.0],
@@ -179,6 +189,7 @@ impl Overlay {
     pub fn activate(&mut self, monitor: MonitorInfo, settings: AppSettings) {
         self.monitor = Some(monitor.clone());
         self.settings = settings;
+        self.refresh_banner_text();
         let now = Instant::now();
         self.session_started = now;
         self.last_render_at = now;
@@ -186,16 +197,19 @@ impl Overlay {
         self.active = true;
         self.pointer_suppressed = false;
         self.editing = false;
+        self.positioning = false;
+        self.window_drag = None;
         self.alpha = 0;
         self.target_alpha = 255;
+        let bounds = self.output_rect();
         unsafe {
             SetWindowPos(
                 self.hwnd(),
                 HWND_TOPMOST,
-                monitor.rect[0],
-                monitor.rect[1],
-                monitor.width(),
-                monitor.height(),
+                bounds[0],
+                bounds[1],
+                bounds[2] - bounds[0],
+                bounds[3] - bounds[1],
                 SWP_NOACTIVATE | SWP_SHOWWINDOW,
             );
             InvalidateRect(self.hwnd(), std::ptr::null(), 0);
@@ -204,6 +218,7 @@ impl Overlay {
     }
 
     pub fn deactivate(&mut self) {
+        self.finish_positioning();
         self.active = false;
         self.editing = false;
         self.pointer_suppressed = false;
@@ -211,7 +226,19 @@ impl Overlay {
     }
 
     pub fn set_settings(&mut self, settings: AppSettings) {
+        let mode_changed = self.settings.windowed != settings.windowed;
+        let language_changed = self.settings.language != settings.language;
+        if mode_changed {
+            self.finish_positioning();
+            self.editing = false;
+        }
         self.settings = settings;
+        if language_changed {
+            self.refresh_banner_text();
+        }
+        if mode_changed && self.active {
+            self.apply_geometry();
+        }
         self.was_periodic_blank = self.periodic_blank();
         self.last_render_at = Instant::now();
         unsafe {
@@ -242,10 +269,78 @@ impl Overlay {
         self.active
     }
 
+    pub fn is_editing(&self) -> bool {
+        self.editing
+    }
+
+    pub fn is_positioning(&self) -> bool {
+        self.positioning
+    }
+
+    pub fn take_window_rect(&mut self) -> Option<[f32; 4]> {
+        self.pending_window_rect.take()
+    }
+
+    pub fn toggle_positioning(&mut self) -> bool {
+        if !self.active || !self.settings.windowed {
+            return false;
+        }
+        if self.positioning {
+            self.finish_positioning();
+        } else {
+            self.editing = false;
+            self.positioning = true;
+            self.reveal();
+        }
+        unsafe {
+            InvalidateRect(self.hwnd(), std::ptr::null(), 0);
+        }
+        self.positioning
+    }
+
+    fn finish_positioning(&mut self) {
+        if self.positioning {
+            self.pending_window_rect = Some(self.settings.window_rect);
+            unsafe {
+                ReleaseCapture();
+            }
+        }
+        self.positioning = false;
+        self.window_drag = None;
+    }
+
+    fn output_rect(&self) -> [i32; 4] {
+        let Some(monitor) = &self.monitor else {
+            return [0, 0, 800, 600];
+        };
+        if self.settings.windowed {
+            window_bounds(monitor.rect, self.settings.window_rect)
+        } else {
+            monitor.rect
+        }
+    }
+
+    fn apply_geometry(&self) {
+        let rect = self.output_rect();
+        unsafe {
+            SetWindowPos(
+                self.hwnd(),
+                HWND_TOPMOST,
+                rect[0],
+                rect[1],
+                rect[2] - rect[0],
+                rect[3] - rect[1],
+                SWP_NOACTIVATE,
+            );
+            InvalidateRect(self.hwnd(), std::ptr::null(), 0);
+        }
+    }
+
     pub fn toggle_editing(&mut self) -> bool {
         if !self.active || self.layout.is_empty() {
             return false;
         }
+        self.finish_positioning();
         self.editing = !self.editing;
         self.selected = None;
         self.edit_action = EditAction::None;
@@ -278,13 +373,14 @@ impl Overlay {
         if !self.active || self.editing {
             return;
         }
-        let Some(monitor) = &self.monitor else {
-            return;
-        };
-        let inside = platform::point_in_rect(platform::cursor_position(), monitor.rect);
+        let inside = !self.positioning
+            && platform::point_in_rect(platform::cursor_position(), self.output_rect());
         if inside && !self.pointer_suppressed {
             self.pointer_suppressed = true;
             self.target_alpha = 0;
+            self.alpha = 0;
+            platform::set_overlay_alpha(self.hwnd(), 0);
+            platform::show_overlay(self.hwnd(), false);
         } else if !inside && self.pointer_suppressed {
             self.reveal();
         }
@@ -303,7 +399,7 @@ impl Overlay {
             return;
         }
 
-        if blank || self.layout.is_empty() {
+        if (blank || self.layout.is_empty()) && !self.positioning {
             return;
         }
 
@@ -376,7 +472,7 @@ impl Overlay {
             FillRect(dc, &client, black);
             DeleteObject(black as _);
         }
-        if !self.periodic_blank() || self.editing {
+        if !self.periodic_blank() || self.editing || self.positioning {
             let composition = self.composition_rect(client.right, client.bottom);
             let frames: HashMap<_, _> = self
                 .shared
@@ -420,6 +516,10 @@ impl Overlay {
             if self.editing {
                 self.paint_banner(dc, client.right);
             }
+        }
+        if self.positioning {
+            self.paint_edit_frame(dc, 0, [1, 1, width - 1, height - 1]);
+            self.paint_banner(dc, width);
         }
         if dc != target_dc {
             unsafe {
@@ -467,18 +567,42 @@ impl Overlay {
             DeleteObject(brush as _);
             SetBkMode(dc, TRANSPARENT as i32);
             SetTextColor(dc, 0x00ffffff);
-            let text = wide("EDIT LAYOUT  ·  Drag / resize bottom-right  ·  Ctrl+Alt+L to save");
-            DrawTextW(
-                dc,
-                text.as_ptr(),
-                -1,
-                &mut banner,
-                DT_CENTER | DT_VCENTER | DT_SINGLELINE,
-            );
+            let text = &self.banner_text[usize::from(self.positioning)];
+            DrawTextW(dc, text.as_ptr(), -1, &mut banner, DT_CENTER | DT_WORDBREAK);
         }
     }
 
+    fn refresh_banner_text(&mut self) {
+        let translations = Translations::load(&self.settings.language);
+        self.banner_text = [
+            wide(&translations.text("layout.overlay_banner")),
+            wide(&translations.text("output.position_banner")),
+        ];
+    }
+
     fn mouse_press(&mut self, event: nwg::MousePressEvent) {
+        if self.positioning {
+            match event {
+                nwg::MousePressEvent::MousePressLeftDown => {
+                    let point = platform::cursor_position();
+                    let rect = self.output_rect();
+                    let resize = point[0] >= rect[2] - 28 && point[1] >= rect[3] - 28;
+                    self.window_drag = Some((point, rect, resize));
+                    unsafe {
+                        SetCapture(self.hwnd());
+                    }
+                }
+                nwg::MousePressEvent::MousePressLeftUp => {
+                    self.window_drag = None;
+                    self.pending_window_rect = Some(self.settings.window_rect);
+                    unsafe {
+                        ReleaseCapture();
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
         if !self.editing {
             return;
         }
@@ -524,6 +648,33 @@ impl Overlay {
     }
 
     fn mouse_move(&mut self) {
+        if self.positioning {
+            let point = platform::cursor_position();
+            let rect = self.output_rect();
+            let resize_hover = point[0] >= rect[2] - 28 && point[1] >= rect[3] - 28;
+            unsafe {
+                SetCursor(LoadCursorW(
+                    std::ptr::null_mut(),
+                    if resize_hover {
+                        IDC_SIZENWSE
+                    } else {
+                        IDC_SIZEALL
+                    },
+                ));
+            }
+            if let Some((origin, initial, resize)) = self.window_drag {
+                if let Some(monitor) = &self.monitor {
+                    self.settings.window_rect = drag_window_rect(
+                        monitor.rect,
+                        initial,
+                        [point[0] - origin[0], point[1] - origin[1]],
+                        resize,
+                    );
+                    self.apply_geometry();
+                }
+            }
+            return;
+        }
         if !self.editing || self.edit_action == EditAction::None {
             return;
         }
@@ -576,6 +727,43 @@ impl Overlay {
             self.composition_rect(client.right, client.bottom),
         ))
     }
+}
+
+fn window_bounds(monitor: [i32; 4], rect: [f32; 4]) -> [i32; 4] {
+    let width = (monitor[2] - monitor[0]) as f32;
+    let height = (monitor[3] - monitor[1]) as f32;
+    let x = monitor[0] + (rect[0] * width).round() as i32;
+    let y = monitor[1] + (rect[1] * height).round() as i32;
+    [
+        x,
+        y,
+        x + (rect[2] * width).round() as i32,
+        y + (rect[3] * height).round() as i32,
+    ]
+}
+
+fn drag_window_rect(
+    monitor: [i32; 4],
+    initial: [i32; 4],
+    delta: [i32; 2],
+    resize: bool,
+) -> [f32; 4] {
+    let width = (monitor[2] - monitor[0]).max(1) as f32;
+    let height = (monitor[3] - monitor[1]).max(1) as f32;
+    let mut rect = [
+        (initial[0] - monitor[0]) as f32 / width,
+        (initial[1] - monitor[1]) as f32 / height,
+        (initial[2] - initial[0]) as f32 / width,
+        (initial[3] - initial[1]) as f32 / height,
+    ];
+    if resize {
+        rect[2] = (rect[2] + delta[0] as f32 / width).clamp(0.1, (1.0 - rect[0]).max(0.1));
+        rect[3] = (rect[3] + delta[1] as f32 / height).clamp(0.1, (1.0 - rect[1]).max(0.1));
+    } else {
+        rect[0] += delta[0] as f32 / width;
+        rect[1] += delta[1] as f32 / height;
+    }
+    crate::model::normalize_window_rect(rect)
 }
 
 fn composition_rect_at(width: i32, height: i32, elapsed: f32, settings: &AppSettings) -> [f32; 4] {
@@ -645,6 +833,46 @@ fn wide(value: &str) -> Vec<u16> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn captured_pixels_are_rendered_top_down() {
+        let info = bitmap_info(80, 60);
+        assert_eq!(info.bmiHeader.biHeight, -60);
+        let target = fit_frame([0, 0, 800, 600], 80, 60);
+        assert!(target[2] > target[0] && target[3] > target[1]);
+    }
+
+    #[test]
+    fn window_region_supports_negative_monitor_coordinates() {
+        assert_eq!(
+            window_bounds([-1920, 0, 0, 1080], [0.1, 0.2, 0.5, 0.4]),
+            [-1728, 216, -768, 648]
+        );
+    }
+
+    #[test]
+    fn window_drag_and_resize_stay_inside_target_display() {
+        let monitor = [0, 0, 1000, 800];
+        let initial = [100, 80, 600, 480];
+        assert_eq!(
+            drag_window_rect(monitor, initial, [100, 80], false),
+            [0.2, 0.2, 0.5, 0.5]
+        );
+        assert_eq!(
+            drag_window_rect(monitor, initial, [9000, -9000], false),
+            [0.5, 0.0, 0.5, 0.5]
+        );
+        assert_eq!(
+            drag_window_rect(monitor, initial, [9000, 9000], true),
+            [0.1, 0.1, 0.9, 0.9]
+        );
+        assert_eq!(
+            drag_window_rect(monitor, initial, [-9000, -9000], true),
+            [0.1, 0.1, 0.1, 0.1]
+        );
+        // Rounding a small window near a monitor edge must not panic on clamp.
+        let _ = drag_window_rect([0, 0, 1366, 768], [1230, 692, 1366, 768], [5, 5], true);
+    }
 
     #[test]
     fn render_interval_tracks_capture_rate() {

@@ -30,6 +30,14 @@ The main components are:
 
 The overlay layout uses normalized rectangles in the `[0, 1]` coordinate space. The complete composition can drift to the physical screen edges, rebound, and scale without changing the relative geometry of its source windows.
 
+Both settings models also contain `windowed` (default `false`) and `window_rect`
+(`[x, y, width, height]`, normalized relative to the selected monitor). `Ctrl+Alt+P` toggles
+protection-window positioning, independently of `Ctrl+Alt+L` content-layout editing. Positioning
+works for a black-only canvas, suppresses pointer reveal, and persists move/resize changes.
+Normal reveal tests the output window bounds; restoring visibility must not reset a windowed
+canvas to full-screen. Pausing and switching display mode end positioning. Capture sessions are
+retained across display-mode changes. Window dimensions are clamped to 10–100% of the display.
+
 Each edition owns a separate value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 The stored command includes `--startup`, and the persisted `silent_start` setting decides whether
 the control panel is initially visible. The tray remains available when the window starts hidden.
@@ -104,9 +112,25 @@ Language changes are persisted immediately and applied throughout the UI on the 
 
 Each selected source window owns one `CaptureSession`. The preferred backend is Windows Graphics Capture. If WGC cannot start, the session falls back to `PrintWindow`.
 
+All captured pixel buffers use top-down BGRA row order. The Python fallback previously read
+device-dependent `GetBitmapBits` data and unconditionally flipped it vertically; a top-down
+device bitmap therefore appeared upside down only when the WGC fallback was used. Both GDI
+paths now request a 32-bit top-down DIB explicitly (`biHeight < 0`) and deselect the bitmap
+before `GetDIBits`. The GDI regression test draws distinct top/bottom colors into a real bitmap
+and checks their row order without depending on an intermittent WGC startup failure.
+
 Captured frames are BGRA NumPy arrays. The normal memory-saving mode limits persistent raw frames to approximately one megapixel and a maximum dimension of 1600 pixels. Full-resolution mode stores an owned, contiguous copy of every source pixel. The filtered array is passed directly to `QImage` while its NumPy owner remains alive, avoiding intermediate `bytes` and `QImage.copy()` allocations.
 
 The application periodically asks Windows to reclaim unused working-set pages. This lowers idle physical memory without deleting application state, although required pages may be loaded again during active capture.
+
+## Control-panel styling
+
+The Qt control panel uses a common Fusion style and dark palette for controls, lists, menus,
+and dialogs. Settings pages scroll at smaller sizes; disabled controls retain readable labels.
+The styled slider handle is 20 logical pixels high. `ValueSlider` reserves 32 logical pixels
+on the inner `QSlider` itself: increasing only its wrapper height leaves Fusion's 15-pixel size
+hint in effect and clips the handle. Check enabled and disabled handles, range endpoints,
+and both language packs at 100%, 125%, 150%, and 200% scaling after changing slider styles.
 
 ## Filters
 
@@ -128,7 +152,10 @@ Run linting:
 .\.venv\Scripts\python.exe -m ruff check src tests
 ```
 
-The tests cover settings normalization and persistence, language-pack parity, layouts, motion, filters, frame compaction, overlay frame ownership, and layout-edit mode behavior.
+The tests cover settings normalization and persistence, language-pack parity, layouts, motion,
+filters, frame compaction, overlay frame ownership, layout editing, protection-window geometry
+and pointer reveal, and GDI capture row order. Run `scripts/test-native.ps1` for Rust formatting
+and unit tests as well.
 
 ## Packaging
 
@@ -136,6 +163,10 @@ The tests cover settings normalization and persistence, language-pack parity, la
 .\scripts\build.ps1
 .\scripts\build-native.ps1
 ```
+
+The build script restricts DLL lookup to the selected Python installation and Windows while
+packaging, then restores `PATH`. This prevents unrelated tools on `PATH` (such as Poppler)
+from contributing an incompatible `icuuc.dll` that breaks Qt at packaged startup.
 
 The full-edition build creates a one-file, windowed executable with Python bytecode optimization. It includes:
 
@@ -160,13 +191,15 @@ dependency, runs its packaged smoke tests, and writes its checksum. See
 
 ## Release checklist
 
-1. Update the same version in `pyproject.toml`, `src/sidescreen/__init__.py`, `native/Cargo.toml`, and `native/app.rc`.
-2. Verify that built-in language packs contain identical key sets.
-3. Run Ruff and the complete test suite.
+1. Update the same version in `pyproject.toml`, `src/sidescreen/__init__.py`, `native/Cargo.toml`, its package entry in `native/Cargo.lock`, and `native/app.rc`.
+2. Update the user/developer documentation and add `docs/releases/v<version>.md` with release notes. Verify that built-in language packs contain identical key sets.
+3. Run Ruff and the complete Python and native test suites.
 4. Build with `scripts/build.ps1` and `scripts/build-native.ps1`.
 5. Run the packaged smoke tests for both editions.
 6. Record both EXE sizes and SHA-256 checksums.
-7. Confirm that `dist` contains only the two intended release executables and their checksums.
+7. Confirm that the release upload selects exactly the two intended executables and their checksums; keep local QA output out of Git and release assets.
+8. Push the intended commit to `main` and wait for both CI jobs to pass before pushing the new annotated tag.
+9. Wait for the Release workflow, then download all four release assets and verify both SHA-256 checksums against the downloaded executables.
 
 ## Automated releases
 
@@ -174,11 +207,12 @@ dependency, runs its packaged smoke tests, and writes its checksum. See
 must match the versions in both `pyproject.toml` and `native/Cargo.toml`, including the `v` prefix.
 
 ```powershell
-git tag -a v0.6.0 -m "SideScreenUtil v0.6.0"
-git push origin v0.6.0
+git tag -a v0.8.0 -m "SideScreenUtil v0.8.0"
+git push origin v0.8.0
 ```
 
 The Windows runner tests and builds both implementations, runs their packaged smoke tests, writes
 separate SHA-256 checksums, uploads one workflow artifact, and creates a GitHub Release containing
-both executables and both checksum files. A tag or cross-edition version mismatch stops the
-workflow before packaging.
+both executables and both checksum files. The release description is read from
+`docs/releases/<tag>.md`. A missing notes file or tag/cross-edition version mismatch stops the
+workflow before packaging. Use the next unused version when following the example above.

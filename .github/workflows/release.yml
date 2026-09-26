@@ -54,6 +54,10 @@ jobs:
           if ($env:GITHUB_REF_NAME -ne "v$PythonVersion") {
             throw "Tag $env:GITHUB_REF_NAME does not match project version v$PythonVersion."
           }
+          $ReleaseNotes = "docs/releases/$env:GITHUB_REF_NAME.md"
+          if (-not (Test-Path -LiteralPath $ReleaseNotes)) {
+            throw "Release notes not found: $ReleaseNotes"
+          }
 
       - name: Install dependencies
         shell: pwsh
@@ -120,6 +124,5 @@ jobs:
             .\dist\SideScreenUtil-native.exe `
             .\dist\SideScreenUtil-native.exe.sha256 `
             --title "SideScreenUtil $env:GITHUB_REF_NAME" `
-            --notes "Two maintained Windows editions are included: SideScreenUtil.exe (full Python/Qt compatibility edition) and SideScreenUtil-native.exe (compact native Rust/Win32 edition). Choose either one; their settings are stored separately." `
-            --generate-notes `
+            --notes-file "docs/releases/$env:GITHUB_REF_NAME.md" `
             --verify-tag

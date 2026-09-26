@@ -51,6 +51,8 @@ pub struct AppSettings {
     pub start_with_windows: bool,
     pub silent_start: bool,
     pub monitor_device: String,
+    pub windowed: bool,
+    pub window_rect: [f32; 4],
     pub preview_scale: f32,
     pub move_seconds: u32,
     pub size_variation: f32,
@@ -74,6 +76,8 @@ impl Default for AppSettings {
             start_with_windows: false,
             silent_start: false,
             monitor_device: String::new(),
+            windowed: false,
+            window_rect: [0.15, 0.15, 0.7, 0.7],
             preview_scale: 0.72,
             move_seconds: 180,
             size_variation: 0.03,
@@ -94,6 +98,7 @@ impl Default for AppSettings {
 
 impl AppSettings {
     pub fn normalize(&mut self) {
+        self.window_rect = normalize_window_rect(self.window_rect);
         self.preview_scale = self.preview_scale.clamp(0.20, 0.90);
         self.move_seconds = self.move_seconds.clamp(30, 900);
         self.size_variation = self.size_variation.clamp(0.0, 0.10);
@@ -150,6 +155,17 @@ pub struct FrameData {
     pub pixels: Vec<u8>,
 }
 
+pub fn normalize_window_rect(mut rect: [f32; 4]) -> [f32; 4] {
+    if rect.iter().any(|value| !value.is_finite()) {
+        return [0.15, 0.15, 0.7, 0.7];
+    }
+    rect[2] = rect[2].clamp(0.1, 1.0);
+    rect[3] = rect[3].clamp(0.1, 1.0);
+    rect[0] = rect[0].clamp(0.0, 1.0 - rect[2]);
+    rect[1] = rect[1].clamp(0.0, 1.0 - rect[3]);
+    rect
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -160,6 +176,8 @@ mod tests {
             serde_json::from_str(r#"{"language":"en_US"}"#).expect("valid settings");
         assert!(!settings.start_with_windows);
         assert!(!settings.silent_start);
+        assert!(!settings.windowed);
+        assert_eq!(settings.window_rect, [0.15, 0.15, 0.7, 0.7]);
     }
 
     #[test]
@@ -167,11 +185,27 @@ mod tests {
         let settings = AppSettings {
             start_with_windows: true,
             silent_start: true,
+            windowed: true,
+            window_rect: [0.1, 0.2, 0.5, 0.4],
             ..AppSettings::default()
         };
         let raw = serde_json::to_string(&settings).expect("serialize settings");
         let restored: AppSettings = serde_json::from_str(&raw).expect("deserialize settings");
         assert!(restored.start_with_windows);
         assert!(restored.silent_start);
+        assert!(restored.windowed);
+        assert_eq!(restored.window_rect, settings.window_rect);
+    }
+
+    #[test]
+    fn window_region_is_finite_and_inside_display() {
+        assert_eq!(
+            normalize_window_rect([-2.0, 3.0, 9.0, -4.0]),
+            [0.0, 0.9, 1.0, 0.1]
+        );
+        assert_eq!(
+            normalize_window_rect([0.0, f32::NAN, 0.5, 0.5]),
+            [0.15, 0.15, 0.7, 0.7]
+        );
     }
 }

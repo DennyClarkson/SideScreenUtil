@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QStackedWidget,
     QSystemTrayIcon,
     QVBoxLayout,
@@ -28,7 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from sidescreen import __version__
-from sidescreen.controls import ValueSlider
+from sidescreen.controls import ValueSlider, apply_control_theme
 from sidescreen.displays import screen_id, screen_label
 from sidescreen.filters import FILTER_LABEL_KEYS, FilterConfig
 from sidescreen.hotkeys import GlobalLayoutHotkey
@@ -53,7 +54,20 @@ QMainWindow, QWidget#root { background: #202020; color: #ffffff; }
 QWidget {
   font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI";
   font-size: 13px;
+  color: #ffffff;
 }
+QWidget:disabled { color: #858585; }
+QScrollArea { background: transparent; border: none; }
+QComboBox QAbstractItemView, QMenu {
+  background: #2b2b2b; color: #ffffff; border: 1px solid #474747;
+  selection-background-color: #404040; selection-color: #ffffff; outline: none;
+}
+QMenu::item { padding: 8px 24px; }
+QMenu::item:selected { background: #404040; }
+QScrollBar:vertical { background: #252525; width: 10px; margin: 0; }
+QScrollBar::handle:vertical { background: #666666; min-height: 28px; border-radius: 4px; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
 QFrame#titleBar { background: #202020; border-bottom: 1px solid #292929; }
 QFrame#navigationPane { background: #202020; border: none; }
 QFrame#settingCard { background: #2b2b2b; border: 1px solid #3a3a3a; border-radius: 7px; }
@@ -65,7 +79,8 @@ QComboBox, QSpinBox, QDoubleSpinBox, QListWidget#sourceList {
   background: #313131; border: 1px solid #474747; border-radius: 4px;
   padding: 6px; color: #ffffff; selection-background-color: #404040;
 }
-QComboBox { padding-right: 34px; }
+QComboBox { padding-right: 34px; min-height: 20px; }
+QComboBox:disabled { color: #858585; border-color: #373737; }
 QComboBox::drop-down {
   subcontrol-origin: padding; subcontrol-position: center right;
   width: 32px; border: none; background: transparent;
@@ -94,6 +109,7 @@ QPushButton {
 }
 QPushButton:hover { background: #3b3b3b; border-color: #666666; }
 QPushButton:pressed { background: #292929; }
+QPushButton:focus { border-color: #60cdff; }
 QPushButton#primary {
   background: #60cdff; border-color: #60cdff; color: #102027; font-weight: 600;
 }
@@ -107,22 +123,25 @@ QLabel#status {
 }
 QToolTip { background: #2b2b2b; color: white; border: 1px solid #555555; padding: 5px; }
 QCheckBox { color: #ffffff; spacing: 9px; }
-QCheckBox::indicator { width: 34px; height: 18px; border-radius: 9px; background: #555555; }
-QCheckBox::indicator:checked { background: #60cdff; border: 1px solid #8addff; }
+QCheckBox { min-height: 28px; }
 QSlider::groove:horizontal { height: 4px; background: #555555; border-radius: 2px; }
 QSlider::sub-page:horizontal { background: #60cdff; border-radius: 2px; }
 QSlider::handle:horizontal {
   background: #ffffff; border: 3px solid #60cdff; width: 14px; height: 14px;
-  margin: -6px 0; border-radius: 10px;
+  margin: -8px 0; border-radius: 10px;
 }
 QSlider::handle:horizontal:hover { background: #ffffff; border-color: #8addff; }
-QLabel[class="sliderValue"] { color: #d0d0d0; font-family: "Cascadia Mono", "Consolas"; }
+QSlider::sub-page:horizontal:disabled { background: #555555; }
+QSlider::handle:horizontal:disabled { background: #858585; border-color: #555555; }
+QLabel[class="sliderValue"] { color: #d0d0d0; }
+QLabel[class="sliderValue"]:disabled { color: #858585; }
 """
 
 
 class MainWindow(QMainWindow):
     def __init__(self, store: SettingsStore | None = None) -> None:
         super().__init__()
+        apply_control_theme(QApplication.instance())
         self.setObjectName("main")
         self.setMinimumSize(960, 680)
         self.resize(1080, 760)
@@ -275,9 +294,12 @@ class MainWindow(QMainWindow):
         self.pages = QStackedWidget()
         self.pages.addWidget(self._build_source_page())
         self.pages.addWidget(self._build_layout_tab())
-        self.pages.addWidget(self._build_filter_tab())
-        self.pages.addWidget(self._build_protection_tab())
-        self.pages.addWidget(self._build_settings_tab())
+        for page in (self._build_filter_tab(), self._build_protection_tab(),
+                     self._build_settings_tab()):
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setWidget(page)
+            self.pages.addWidget(scroll)
         workspace_layout.addWidget(self.pages, 1)
 
         self.status_label = QLabel(tr("status.ready"))
@@ -327,6 +349,20 @@ class MainWindow(QMainWindow):
         screen_row.addWidget(self.screen_combo, 1)
         screen_row.addWidget(refresh_screens)
         display_layout.addLayout(screen_row)
+        output_row = QHBoxLayout()
+        self.output_combo = QComboBox()
+        self.output_combo.addItem(tr("output.fullscreen"), False)
+        self.output_combo.addItem(tr("output.windowed"), True)
+        self.output_combo.setAccessibleName(tr("output.mode"))
+        self.position_button = QPushButton(tr("output.position"))
+        self.position_button.setEnabled(False)
+        output_row.addWidget(self.output_combo, 1)
+        output_row.addWidget(self.position_button)
+        display_layout.addLayout(output_row)
+        self.output_hint = QLabel(tr("output.help"))
+        self.output_hint.setWordWrap(True)
+        self.output_hint.setProperty("class", "muted")
+        display_layout.addWidget(self.output_hint)
         page_layout.addWidget(display_card)
 
         source_card = QFrame()
@@ -457,7 +493,7 @@ class MainWindow(QMainWindow):
         form.setHorizontalSpacing(28)
         form.setVerticalSpacing(18)
         self.scale_spin = ValueSlider(
-            20, 92, lambda value: tr("common.percent", value=value)
+            20, 90, lambda value: tr("common.percent", value=value)
         )
         self.move_spin = ValueSlider(
             30, 900, lambda value: tr("protection.segment_seconds", value=value)
@@ -512,14 +548,14 @@ class MainWindow(QMainWindow):
         startup_tip = QLabel(tr("settings.start_with_windows_tip"))
         startup_tip.setWordWrap(True)
         startup_tip.setProperty("class", "muted")
-        startup_tip.setContentsMargins(43, 0, 0, 4)
+        startup_tip.setContentsMargins(24, 0, 0, 4)
         startup_layout.addWidget(startup_tip)
         self.silent_start_check = QCheckBox(tr("settings.silent_start"))
         startup_layout.addWidget(self.silent_start_check)
         silent_tip = QLabel(tr("settings.silent_start_tip"))
         silent_tip.setWordWrap(True)
         silent_tip.setProperty("class", "muted")
-        silent_tip.setContentsMargins(43, 0, 0, 0)
+        silent_tip.setContentsMargins(24, 0, 0, 0)
         startup_layout.addWidget(silent_tip)
         outer.addWidget(startup_card)
 
@@ -570,6 +606,10 @@ class MainWindow(QMainWindow):
         self.pause_button.clicked.connect(self.toggle_pause)
         self.layout_edit_button.clicked.connect(self.toggle_layout_editing)
         self._layout_hotkey.activated.connect(self.toggle_layout_editing)
+        self._layout_hotkey.position_activated.connect(self.toggle_positioning)
+        self.position_button.clicked.connect(self.toggle_positioning)
+        self.output_combo.currentIndexChanged.connect(self._output_changed)
+        self._overlay.window_rect_changed.connect(self._window_rect_changed)
         self.window_list.itemChanged.connect(lambda _item: self._selection_changed())
         self.layout_combo.currentIndexChanged.connect(lambda _index: self._regenerate_layout())
         self._overlay.layout_edited.connect(self._overlay_layout_edited)
@@ -603,6 +643,7 @@ class MainWindow(QMainWindow):
 
     def _load_controls(self) -> None:
         settings = self._settings
+        self._set_combo_data(self.output_combo, settings.windowed)
         self.scale_spin.setValue(settings.preview_scale * 100)
         self.move_spin.setValue(settings.move_seconds)
         self.variation_spin.setValue(settings.size_variation * 100)
@@ -635,6 +676,8 @@ class MainWindow(QMainWindow):
             start_with_windows=self.start_with_windows_check.isChecked(),
             silent_start=self.silent_start_check.isChecked(),
             screen_id=screen_id(screen) if screen is not None else "",
+            windowed=bool(self.output_combo.currentData()),
+            window_rect=list(self._settings.window_rect),
             preview_scale=self.scale_spin.value() / 100,
             move_seconds=self.move_spin.value(),
             size_variation=self.variation_spin.value() / 100,
@@ -814,6 +857,7 @@ class MainWindow(QMainWindow):
             self.pause_button.setText(tr("action.pause"))
             self._tray_pause_action.setText(tr("tray.pause"))
         editing = self._overlay.toggle_layout_editing()
+        self._update_position_button()
         if editing:
             self.layout_edit_button.setText(tr("layout.finish"))
             self.header_state.setText(tr("state.editing"))
@@ -850,11 +894,10 @@ class MainWindow(QMainWindow):
             self._filter_controls_changed()
 
     def _update_accent_button(self) -> None:
-        foreground = "#061018" if self._accent_color.lightness() > 150 else "white"
         self.accent_button.setText(self._accent_color.name().upper())
-        self.accent_button.setStyleSheet(
-            f"background: {self._accent_color.name()}; color: {foreground}; font-weight: 700;"
-        )
+        swatch = QPixmap(16, 16)
+        swatch.fill(self._accent_color)
+        self.accent_button.setIcon(QIcon(swatch))
 
     def _update_filter_visibility(self) -> None:
         style = str(self.filter_combo.currentData())
@@ -873,6 +916,31 @@ class MainWindow(QMainWindow):
         if self._active:
             self._overlay.update_settings(self._settings_from_controls())
         self._persist_current_settings()
+
+    def _update_position_button(self) -> None:
+        self.position_button.setEnabled(self._active and bool(self.output_combo.currentData()))
+        self.position_button.setText(tr("output.finish" if self._overlay.positioning
+                                        else "output.position"))
+
+    def _window_rect_changed(self, rectangle: list[float]) -> None:
+        self._settings.window_rect = list(rectangle)
+        self._persist_current_settings()
+
+    def _output_changed(self, _index: int = -1) -> None:
+        if self._loading:
+            return
+        self._protection_changed()
+        self._update_position_button()
+        self._check_pointer()
+
+    def toggle_positioning(self) -> None:
+        if not self._active or not self.output_combo.currentData():
+            return
+        if self._paused:
+            self.toggle_pause()
+        self._overlay.toggle_positioning()
+        self._update_position_button()
+        self._check_pointer()
 
     def _update_resolution_limit_text(self) -> None:
         if self.limit_resolution_check.isChecked():
@@ -977,6 +1045,7 @@ class MainWindow(QMainWindow):
         starting_layout = self._layout or grid_layout(window.hwnd for window in windows)
         self._overlay.set_layout(starting_layout, False)
         self._overlay.activate(screen, settings)
+        self._update_position_button()
         self._captures.sync_windows(
             windows,
             settings.capture_fps,
@@ -1004,6 +1073,7 @@ class MainWindow(QMainWindow):
         self._active = False
         self._paused = False
         self._active_screen = None
+        self._update_position_button()
         self.start_button.setText(tr("action.start"))
         self.pause_button.setEnabled(False)
         self.layout_edit_button.setEnabled(False)
@@ -1021,6 +1091,9 @@ class MainWindow(QMainWindow):
             return
         if self._overlay.layout_editing:
             self._overlay.finish_layout_editing()
+        if self._overlay.positioning:
+            self._overlay.toggle_positioning()
+            self._update_position_button()
         self._paused = not self._paused
         if self._paused:
             self._overlay.suppress_for_pointer()
@@ -1045,9 +1118,10 @@ class MainWindow(QMainWindow):
             or self._active_screen is None
             or self._paused
             or self._overlay.layout_editing
+            or self._overlay.positioning
         ):
             return
-        inside = self._active_screen.geometry().contains(QCursor.pos())
+        inside = self._overlay.geometry().contains(QCursor.pos())
         if inside:
             self._overlay.suppress_for_pointer()
         elif self._overlay.pointer_suppressed:

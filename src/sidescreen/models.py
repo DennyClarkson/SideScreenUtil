@@ -1,6 +1,18 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+import math
+from dataclasses import asdict, dataclass, field
+
+
+def normalized_window_rect(value: object) -> list[float]:
+    try:
+        x, y, width, height = [float(part) for part in value]
+        if not all(math.isfinite(part) for part in (x, y, width, height)):
+            raise ValueError
+    except (TypeError, ValueError):
+        return [0.15, 0.15, 0.7, 0.7]
+    width, height = min(1.0, max(0.1, width)), min(1.0, max(0.1, height))
+    return [min(1.0 - width, max(0.0, x)), min(1.0 - height, max(0.0, y)), width, height]
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,6 +34,8 @@ class AppSettings:
     start_with_windows: bool = False
     silent_start: bool = False
     screen_id: str = ""
+    windowed: bool = False
+    window_rect: list[float] = field(default_factory=lambda: [0.15, 0.15, 0.7, 0.7])
     preview_scale: float = 0.72
     move_seconds: int = 180
     size_variation: float = 0.03
@@ -43,6 +57,8 @@ class AppSettings:
             start_with_windows=bool(self.start_with_windows),
             silent_start=bool(self.silent_start),
             screen_id=str(self.screen_id),
+            windowed=bool(self.windowed),
+            window_rect=normalized_window_rect(self.window_rect),
             preview_scale=min(0.90, max(0.20, float(self.preview_scale))),
             move_seconds=min(900, max(30, int(self.move_seconds))),
             size_variation=min(0.10, max(0.0, float(self.size_variation))),

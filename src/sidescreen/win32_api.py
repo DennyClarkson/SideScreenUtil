@@ -3,10 +3,10 @@ from __future__ import annotations
 import ctypes
 import logging
 import os
+import struct
 from ctypes import wintypes
 from pathlib import Path
 
-import numpy as np
 import win32api
 import win32con
 import win32gui
@@ -20,6 +20,21 @@ LOGGER = logging.getLogger(__name__)
 
 DWMWA_CLOAKED = 14
 PW_RENDERFULLCONTENT = 0x00000002
+
+# GDI handles are pointer-sized on 64-bit Windows.
+_get_dibits = ctypes.windll.gdi32.GetDIBits
+_get_dibits.argtypes = [
+    wintypes.HDC,
+    wintypes.HBITMAP,
+    wintypes.UINT,
+    wintypes.UINT,
+    ctypes.c_void_p,
+    ctypes.c_void_p,
+    wintypes.UINT,
+]
+_get_dibits.restype = ctypes.c_int
+ctypes.windll.user32.PrintWindow.argtypes = [wintypes.HWND, wintypes.HDC, wintypes.UINT]
+ctypes.windll.user32.PrintWindow.restype = wintypes.BOOL
 
 
 def enable_per_monitor_dpi_awareness() -> None:
@@ -139,7 +154,7 @@ def capture_window_bgra(hwnd: int) -> tuple[bytes, int, int]:
     memory_dc = source_dc.CreateCompatibleDC()
     bitmap = win32ui.CreateBitmap()
     bitmap.CreateCompatibleBitmap(source_dc, width, height)
-    memory_dc.SelectObject(bitmap)
+    previous = memory_dc.SelectObject(bitmap)
     try:
         success = ctypes.windll.user32.PrintWindow(
             hwnd,
@@ -148,11 +163,25 @@ def capture_window_bgra(hwnd: int) -> tuple[bytes, int, int]:
         )
         if not success:
             raise RuntimeError(tr("capture.print_failed"))
-        raw = bitmap.GetBitmapBits(True)
-        image = np.frombuffer(raw, dtype=np.uint8).reshape((height, width, 4))
-        image = np.ascontiguousarray(np.flipud(image))
-        return image.tobytes(), width, height
+        # GetBitmapBits exposes device-dependent row order. In particular, the
+        # usual top-down DDB was inverted by our unconditional flipud.
+        # Request an explicit top-down, 32-bit DIB, just like the WGC pipeline.
+        memory_dc.SelectObject(previous)
+        info = ctypes.create_string_buffer(
+            struct.pack(
+                "<IiiHHIIiiII", 40, width, -height, 1, 32, 0, width * height * 4, 0, 0, 0, 0
+            )
+            + bytes(4)
+        )
+        pixels = ctypes.create_string_buffer(width * height * 4)
+        if (
+            _get_dibits(memory_dc.GetSafeHdc(), bitmap.GetHandle(), 0, height, pixels, info, 0)
+            != height
+        ):
+            raise RuntimeError(tr("capture.print_failed"))
+        return pixels.raw, width, height
     finally:
+        memory_dc.SelectObject(previous)
         win32gui.DeleteObject(bitmap.GetHandle())
         memory_dc.DeleteDC()
         source_dc.DeleteDC()

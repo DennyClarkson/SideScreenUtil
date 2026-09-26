@@ -1,6 +1,9 @@
 # SideScreenUtil
 
-SideScreenUtil turns a selected Windows display into a black-background, multi-window monitoring canvas. It is designed for making practical use of an OLED secondary display while reducing static, uneven pixel wear.
+SideScreenUtil turns a selected Windows display, or a borderless window within it, into a black-background, multi-window monitoring canvas. It is designed for making practical use of an OLED secondary display while reducing static, uneven pixel wear.
+
+Version **0.8.0** adds a movable protection window to both editions, fixes upside-down fallback
+captures, and refines the full edition's controls. See the [release notes](docs/releases/v0.8.0.md).
 
 > No application can guarantee that an OLED panel will never develop burn-in. Keep the physical display brightness reasonable, use the panel's built-in pixel-shift and pixel-refresh features, and avoid leaving unchanged content visible for long periods.
 
@@ -21,7 +24,8 @@ Select and configure windows on the primary display, then monitor them in a flex
 - Adjust contour sensitivity and width for more legible small text.
 - Reduce brightness, drift the canvas with smooth screen-edge rebounds, vary its size slightly, and schedule fully black rest periods.
 - Switch live between a memory-saving one-megapixel-per-window capture limit and full source-window resolution.
-- Hide the monitoring canvas as soon as the pointer enters the selected display, and restore it when the pointer leaves.
+- In full-screen mode, hide the monitoring canvas as soon as the pointer enters the selected display, and restore it when the pointer leaves.
+- Choose a borderless protection window to protect a region within the selected display. Move and resize it with `Ctrl+Alt+P`; normal pointer reveal then applies only inside that region.
 - Optionally start with Windows and launch silently into the system tray.
 - Load the interface language from extensible JSON language packs.
 
@@ -59,11 +63,11 @@ If Python is not available on `PATH`:
 ## Basic operation
 
 1. Select the OLED or other target display.
-2. Select one or more source windows.
+2. Select source windows, or leave the selection empty for a black-only canvas.
 3. Choose an initial layout and visual filter.
 4. Click **Start secondary-screen mode**.
 5. Press `Ctrl+Alt+L` to move and resize monitored windows directly on the target display; press it again to save.
-6. Move the pointer onto the target display whenever you need to interact with the normal desktop.
+6. Move the pointer into the protected area whenever you need to interact with the normal desktop: the whole target display in full-screen mode, or only the protection window in window mode.
 
 The **Protection** tab contains the capture-resolution switch:
 
@@ -71,6 +75,22 @@ The **Protection** tab contains the capture-resolution switch:
 - **Full resolution** retains every source pixel and uses more memory.
 
 The switch takes effect on the next captured frame and does not require restarting monitoring mode.
+
+### Protect part of a display
+
+On the **Monitor** page, choose **Borderless protection window** below the target display.
+Start monitoring, then click **Position window** or press `Ctrl+Alt+P`. Drag anywhere inside
+the window to move it within the selected display, or drag its bottom-right corner to resize it.
+Press `Ctrl+Alt+P` again to save and resume normal monitoring. Positioning also works with no
+source windows selected, so the region can remain entirely black.
+
+During normal monitoring, moving the pointer into the protection window immediately hides it
+and exposes the underlying desktop for interaction; leaving its bounds restores it. Pointer
+reveal is suspended while positioning the window or editing its contents with `Ctrl+Alt+L`.
+The two editing modes are separate. Filters, brightness, motion, black rests, live source changes,
+and capture-resolution options work in both full-screen and window modes. The display-mode
+switch takes effect live. Window position and size are saved as proportions of the target display
+and restored on the next start. Older settings continue to use full-screen protection.
 
 The **Settings** tab controls per-user Windows startup and silent startup. Silent startup keeps the
 control panel hidden on the next launch while leaving the system tray icon available. The same page

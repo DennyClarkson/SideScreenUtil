@@ -1,6 +1,14 @@
 {
   "meta": {"code": "zh_CN", "name": "中文（简体）"},
   "strings": {
+    "output.mode": "显示方式",
+    "output.fullscreen": "全屏保护",
+    "output.windowed": "无边框保护窗口",
+    "output.position": "调整窗口 · Ctrl+Alt+P",
+    "output.finish": "完成调整 · Ctrl+Alt+P",
+    "output.help": "窗口模式：按 Ctrl+Alt+P 后拖动窗口，拖动右下角调整大小；再次按下保存。平时鼠标移入保护区域显示桌面，移出后恢复。",
+    "output.position_banner": "拖动窗口 · 右下角缩放\nCtrl+Alt+P 保存",
+    "output.active_hint": "运行中 · 鼠标移入保护区域显示桌面，移出后恢复",
     "app.window_title": "SideScreenUtil · OLED 多窗口监看",
     "app.subtitle": "OLED 多窗口监看画布 · 实时布局 · 像素友好滤镜",
     "common.refresh": "刷新",

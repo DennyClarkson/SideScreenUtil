@@ -32,6 +32,8 @@ def test_settings_round_trip(tmp_path) -> None:
         screen_id="display-2",
         capture_fps=12,
         limit_capture_resolution=False,
+        windowed=True,
+        window_rect=[0.1, 0.2, 0.5, 0.4],
     )
     store.save(expected)
     assert store.load() == expected
@@ -45,3 +47,10 @@ def test_invalid_settings_fall_back_to_defaults(tmp_path) -> None:
     path = tmp_path / "settings.json"
     path.write_text("not json", encoding="utf-8")
     assert SettingsStore(path).load() == AppSettings()
+
+
+def test_window_region_defaults_and_normalization():
+    assert not AppSettings.from_dict({"brightness": 0.4}).windowed
+    assert AppSettings(window_rect=[-2, 3, 9, -4]).normalized().window_rect == [0, 0.9, 1, 0.1]
+    for invalid in (None, [], [1], [0, 0, float("nan"), 1]):
+        assert AppSettings(window_rect=invalid).normalized().window_rect == [0.15, 0.15, 0.7, 0.7]

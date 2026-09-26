@@ -3,6 +3,7 @@ from unittest.mock import Mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import QPoint  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
 from sidescreen.main_window import MainWindow  # noqa: E402
@@ -64,6 +65,40 @@ def test_settings_page_persists_startup_preferences(tmp_path, monkeypatch) -> No
     assert window.silent_start
 
     window._quitting = True
+    window._tray.hide()
+    window.close()
+    application.processEvents()
+
+
+def test_window_pointer_reveal_only_covers_region_and_pause_ends_positioning(tmp_path, monkeypatch):
+    application = QApplication.instance() or QApplication([])
+    monkeypatch.setattr("sidescreen.main_window.enumerate_windows", lambda: [])
+    store = SettingsStore(tmp_path / "settings.json")
+    store.save(AppSettings(windowed=True, window_rect=[0.25, 0.25, 0.5, 0.5]))
+    window = MainWindow(store)
+    window.start_mode()
+    region = window._overlay.geometry()
+    monkeypatch.setattr("sidescreen.main_window.QCursor.pos", lambda: region.center())
+    window._check_pointer()
+    assert window._overlay.pointer_suppressed
+    monkeypatch.setattr(
+        "sidescreen.main_window.QCursor.pos", lambda: region.topLeft() - QPoint(2, 2)
+    )
+    window._check_pointer()
+    assert not window._overlay.pointer_suppressed
+    assert window._overlay.geometry() == region
+    window.toggle_positioning()
+    assert window._overlay.positioning
+    window.toggle_pause()
+    assert window._paused and not window._overlay.positioning
+    assert window._overlay.pointer_suppressed
+    window.toggle_pause()
+    assert not window._overlay.pointer_suppressed
+    window.output_combo.setCurrentIndex(0)
+    assert not store.load().windowed
+    assert window._overlay.geometry() == window._active_screen.geometry()
+    window._quitting = True
+    window.stop_mode()
     window._tray.hide()
     window.close()
     application.processEvents()

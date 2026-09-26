@@ -17,8 +17,20 @@ if ($RunningRelease) {
     throw "SideScreenUtil is running from dist. Close it before rebuilding."
 }
 $BuildSucceeded = $false
+$OriginalBuildPath = $env:PATH
 Push-Location $ProjectRoot
 try {
+    # Resolve DLLs from this Python installation and Windows, not unrelated
+    # tools on PATH (e.g. Poppler's ICU is incompatible with Qt's Windows ICU).
+    $PythonBase = & $VenvPython -c "import sys; print(sys.base_prefix)"
+    if ($LASTEXITCODE -ne 0) { throw "Unable to locate the Python runtime." }
+    $env:PATH = @(
+        (Split-Path -Parent $VenvPython),
+        $PythonBase,
+        (Join-Path $PythonBase 'DLLs'),
+        (Join-Path $env:SystemRoot 'System32'),
+        $env:SystemRoot
+    ) -join [IO.Path]::PathSeparator
     if (Test-Path -LiteralPath $PreviousExe) {
         Remove-Item -LiteralPath $PreviousExe
     }
@@ -36,6 +48,7 @@ try {
     }
     throw
 } finally {
+    $env:PATH = $OriginalBuildPath
     if ($BuildSucceeded -and (Test-Path -LiteralPath $PreviousExe)) {
         Remove-Item -LiteralPath $PreviousExe
     }

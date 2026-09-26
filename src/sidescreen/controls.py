@@ -3,7 +3,35 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QSlider, QWidget
+from PySide6.QtGui import QColor, QPalette
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QSlider, QWidget
+
+
+def apply_control_theme(application: QApplication) -> None:
+    """Use one style and palette for controls, popups and dialogs alike."""
+    application.setStyle("Fusion")
+    palette = QPalette()
+    for role, color in {
+        QPalette.ColorRole.Window: "#202020",
+        QPalette.ColorRole.WindowText: "#ffffff",
+        QPalette.ColorRole.Base: "#313131",
+        QPalette.ColorRole.AlternateBase: "#383838",
+        QPalette.ColorRole.Text: "#ffffff",
+        QPalette.ColorRole.Button: "#323232",
+        QPalette.ColorRole.ButtonText: "#ffffff",
+        QPalette.ColorRole.Highlight: "#60cdff",
+        QPalette.ColorRole.HighlightedText: "#102027",
+        QPalette.ColorRole.ToolTipBase: "#2b2b2b",
+        QPalette.ColorRole.ToolTipText: "#ffffff",
+    }.items():
+        palette.setColor(role, QColor(color))
+    for role in (
+        QPalette.ColorRole.Text,
+        QPalette.ColorRole.WindowText,
+        QPalette.ColorRole.ButtonText,
+    ):
+        palette.setColor(QPalette.ColorGroup.Disabled, role, QColor("#858585"))
+    application.setPalette(palette)
 
 
 class ValueSlider(QWidget):
@@ -24,9 +52,12 @@ class ValueSlider(QWidget):
         layout.setSpacing(10)
         self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.setRange(minimum, maximum)
-        self.slider.setMinimumWidth(190)
+        self.slider.setMinimumWidth(130)
+        # Fusion's 15px size hint clips the stylesheet's 20px handle. Reserve
+        # space on the slider itself; a taller wrapper cannot change its hint.
+        self.slider.setMinimumHeight(32)
         self.label = QLabel()
-        self.label.setMinimumWidth(104)
+        self.label.setMinimumWidth(116)
         self.label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.label.setProperty("class", "sliderValue")
         layout.addWidget(self.slider, 1)

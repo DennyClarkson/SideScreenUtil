@@ -307,6 +307,8 @@ fn capture_window_gdi(hwnd: isize) -> Option<(Vec<u8>, u32, u32)> {
             biClrImportant: 0,
         };
         let mut pixels = vec![0_u8; width as usize * height as usize * 4];
+        // GetDIBits requires the bitmap to be deselected from its DC.
+        SelectObject(memory, old);
         let copied = GetDIBits(
             memory,
             bitmap,
@@ -316,11 +318,10 @@ fn capture_window_gdi(hwnd: isize) -> Option<(Vec<u8>, u32, u32)> {
             &mut info,
             DIB_RGB_COLORS,
         );
-        SelectObject(memory, old);
         DeleteObject(bitmap as _);
         DeleteDC(memory);
         ReleaseDC(hwnd as _, source);
-        if copied == 0 {
+        if copied != height as i32 {
             None
         } else {
             Some((pixels, width, height))

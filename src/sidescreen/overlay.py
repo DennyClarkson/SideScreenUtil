@@ -4,7 +4,16 @@ import math
 import time
 
 import numpy as np
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import (
+    QEasingCurve,
+    QPoint,
+    QPropertyAnimation,
+    QRect,
+    QRectF,
+    Qt,
+    QTimer,
+    Signal,
+)
 from PySide6.QtGui import QColor, QImage, QMouseEvent, QPainter, QPen, QScreen
 from PySide6.QtWidgets import QWidget
 
@@ -43,6 +52,9 @@ class MonitorOverlay(QWidget):
         self._layout_duration = 0.46
         self._fade: QPropertyAnimation | None = None
         self._layout_editing = False
+        self._positioning = False
+        self._window_drag: tuple[QPoint, QRect, bool] | None = None
+        self.setMouseTracking(True)
         self._edit_composition: QRectF | None = None
         self._edit_selected: int | None = None
         self._edit_action = ""
@@ -52,6 +64,7 @@ class MonitorOverlay(QWidget):
         self._animation_timer.timeout.connect(self.update)
 
     layout_edited = Signal(object)
+    window_rect_changed = Signal(object)
 
     @property
     def active(self) -> bool:
@@ -64,6 +77,45 @@ class MonitorOverlay(QWidget):
     @property
     def layout_editing(self) -> bool:
         return self._layout_editing
+
+    @property
+    def positioning(self) -> bool:
+        return self._positioning
+
+    def _apply_geometry(self) -> None:
+        if self._screen is None:
+            return
+        bounds = self._screen.geometry()
+        if self._settings.windowed:
+            x, y, width, height = self._settings.window_rect
+            self.setGeometry(
+                QRect(
+                    bounds.x() + round(x * bounds.width()),
+                    bounds.y() + round(y * bounds.height()),
+                    round(width * bounds.width()),
+                    round(height * bounds.height()),
+                )
+            )
+        else:
+            self.setGeometry(bounds)
+
+    def toggle_positioning(self) -> bool:
+        if not self._active or not self._settings.windowed:
+            return False
+        if self._layout_editing:
+            self.finish_layout_editing()
+        self._positioning = not self._positioning
+        self._window_drag = None
+        if self._positioning:
+            self.reveal()
+        else:
+            self.releaseMouse()
+            self.window_rect_changed.emit(list(self._settings.window_rect))
+        self.setCursor(
+            Qt.CursorShape.SizeAllCursor if self._positioning else Qt.CursorShape.BlankCursor
+        )
+        self.update()
+        return self._positioning
 
     @property
     def frame_sizes(self) -> dict[int, tuple[int, int]]:
@@ -79,7 +131,9 @@ class MonitorOverlay(QWidget):
         handle = self.windowHandle()
         if handle is not None:
             handle.setScreen(screen)
-        self.setGeometry(screen.geometry())
+        self._positioning = False
+        self._window_drag = None
+        self._apply_geometry()
         self.setWindowOpacity(0.0)
         self.show()
         make_window_no_activate(int(self.winId()))
@@ -88,11 +142,27 @@ class MonitorOverlay(QWidget):
         self._animation_timer.start()
 
     def update_settings(self, settings: AppSettings) -> None:
+        mode_changed = settings.windowed != self._settings.windowed
         self._settings = settings.normalized()
+        mode_name = tr("output.windowed" if self._settings.windowed else "output.fullscreen")
+        self.setWindowTitle(f"SideScreenUtil · {mode_name}")
+        if mode_changed:
+            if self._layout_editing:
+                self.finish_layout_editing()
+            self._positioning = False
+            self._window_drag = None
+            self.releaseMouse()
+            self.setCursor(Qt.CursorShape.BlankCursor)
+            self._apply_geometry()
         self._motion.configure(self._settings.move_seconds, self._settings.size_variation)
         self.update()
 
     def deactivate(self, animated: bool = True) -> None:
+        if self._positioning:
+            self.toggle_positioning()
+        self._positioning = False
+        self._window_drag = None
+        self.releaseMouse()
         if self._layout_editing:
             self.finish_layout_editing(False)
         self._active = False
@@ -113,9 +183,16 @@ class MonitorOverlay(QWidget):
         self._layout.clear()
 
     def suppress_for_pointer(self) -> None:
-        if self._active and not self._layout_editing and not self._pointer_suppressed:
+        if (
+            self._active
+            and not self._layout_editing
+            and not self._positioning
+            and not self._pointer_suppressed
+        ):
             self._pointer_suppressed = True
-            self._fade_to(0.0, 110, QEasingCurve.Type.InCubic, self._finish_pointer_hide)
+            if self._fade is not None:
+                self._fade.stop()
+            self.hide()
 
     def _finish_pointer_hide(self) -> None:
         if self._active and self._pointer_suppressed:
@@ -125,8 +202,7 @@ class MonitorOverlay(QWidget):
         if not self._active:
             return
         self._pointer_suppressed = False
-        if self._screen is not None:
-            self.setGeometry(self._screen.geometry())
+        self._apply_geometry()
         self.setWindowOpacity(0.0)
         self.show()
         make_window_no_activate(int(self.winId()))
@@ -210,6 +286,8 @@ class MonitorOverlay(QWidget):
     def start_layout_editing(self) -> bool:
         if not self._active or not self._layout_target:
             return False
+        if self._positioning:
+            self.toggle_positioning()
         if self._pointer_suppressed or not self.isVisible():
             self.reveal()
         now = time.monotonic()
@@ -305,7 +383,10 @@ class MonitorOverlay(QWidget):
         painter = QPainter(self)
         painter.fillRect(self.rect(), QColor(0, 0, 0))
         now = time.monotonic()
-        if not self._frames or (self._is_periodic_blank(now) and not self._layout_editing):
+        if not self._frames or (
+            self._is_periodic_blank(now) and not self._layout_editing and not self._positioning
+        ):
+            self._paint_position_guide(painter)
             return
         composition = self._composition_rect(now)
         layout = self._interpolated_layout(now)
@@ -353,6 +434,23 @@ class MonitorOverlay(QWidget):
                 Qt.AlignmentFlag.AlignCenter,
                 tr("layout.overlay_banner"),
             )
+        self._paint_position_guide(painter)
+
+    def _paint_position_guide(self, painter: QPainter) -> None:
+        if not self._positioning:
+            return
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(QColor("#60cdff"), 2))
+        painter.drawRect(self.rect().adjusted(1, 1, -2, -2))
+        painter.fillRect(self.width() - 20, self.height() - 20, 16, 16, QColor("#60cdff"))
+        banner = QRect(12, 12, self.width() - 24, 54)
+        painter.fillRect(banner, QColor("#202020"))
+        painter.setPen(QColor("#ffffff"))
+        painter.drawText(
+            banner,
+            Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
+            tr("output.position_banner"),
+        )
 
     def _cell_rect(self, normalized: QRectF) -> QRectF:
         composition = self._composition_rect(time.monotonic())
@@ -364,6 +462,15 @@ class MonitorOverlay(QWidget):
         )
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        if self._positioning and event.button() == Qt.MouseButton.LeftButton:
+            resize = (
+                event.position().x() >= self.width() - 28
+                and event.position().y() >= self.height() - 28
+            )
+            self._window_drag = (event.globalPosition().toPoint(), self.geometry(), resize)
+            self.grabMouse()
+            event.accept()
+            return
         if not self._layout_editing or event.button() != Qt.MouseButton.LeftButton:
             return
         position = event.position()
@@ -384,6 +491,52 @@ class MonitorOverlay(QWidget):
         event.accept()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self._positioning:
+            resize_hover = (
+                event.position().x() >= self.width() - 28
+                and event.position().y() >= self.height() - 28
+            )
+            self.setCursor(
+                Qt.CursorShape.SizeFDiagCursor if resize_hover else Qt.CursorShape.SizeAllCursor
+            )
+            if self._window_drag is not None and self._screen is not None:
+                origin, initial, resize = self._window_drag
+                delta = event.globalPosition().toPoint() - origin
+                bounds = self._screen.geometry()
+                rect = QRect(initial)
+                if resize:
+                    rect.setWidth(
+                        max(
+                            round(bounds.width() * 0.1),
+                            min(initial.width() + delta.x(), bounds.right() - rect.x() + 1),
+                        )
+                    )
+                    rect.setHeight(
+                        max(
+                            round(bounds.height() * 0.1),
+                            min(initial.height() + delta.y(), bounds.bottom() - rect.y() + 1),
+                        )
+                    )
+                else:
+                    rect.moveTo(
+                        min(
+                            bounds.right() - rect.width() + 1,
+                            max(bounds.x(), initial.x() + delta.x()),
+                        ),
+                        min(
+                            bounds.bottom() - rect.height() + 1,
+                            max(bounds.y(), initial.y() + delta.y()),
+                        ),
+                    )
+                self.setGeometry(rect)
+                self._settings.window_rect = [
+                    (rect.x() - bounds.x()) / bounds.width(),
+                    (rect.y() - bounds.y()) / bounds.height(),
+                    rect.width() / bounds.width(),
+                    rect.height() / bounds.height(),
+                ]
+            event.accept()
+            return
         if not self._layout_editing or self._edit_selected is None or not self._edit_action:
             return
         composition = self._composition_rect(time.monotonic())
@@ -403,6 +556,12 @@ class MonitorOverlay(QWidget):
         event.accept()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if self._positioning and event.button() == Qt.MouseButton.LeftButton:
+            self._window_drag = None
+            self.releaseMouse()
+            self.window_rect_changed.emit(list(self._settings.window_rect))
+            event.accept()
+            return
         if self._layout_editing and event.button() == Qt.MouseButton.LeftButton:
             self._edit_action = ""
             event.accept()

@@ -19,10 +19,15 @@ The single executable includes its icon, Chinese and English translations, and a
 - Start with no selected windows for a black-only secondary display.
 - Monitor and switch multiple windows while the mode is active.
 - Use source-relative, grid, horizontal, vertical, or manual layouts.
-- Press `Ctrl+Alt+L` to drag and resize the layout on the target display.
+- Press `Ctrl+Alt+L` to drag and resize the monitored content on the target display; press again to save.
 - Apply original, grayscale, monochrome, hue-cycling, inner-contour, and cycling inner-contour filters.
 - Adjust brightness, contour parameters, canvas size, drift, size variation, black rests, FPS, and the full-resolution switch.
-- Reveal the normal desktop immediately when the pointer enters the target display.
+- In full-screen mode, reveal the normal desktop immediately when the pointer enters the target display.
+- Choose a borderless protection window on the Monitor page. `Ctrl+Alt+P` enables dragging
+  within the selected display and resizing at the bottom-right corner; press again to save.
+  Pointer reveal normally applies only inside the window, and is suspended during positioning.
+  Saved position/size, black-only mode, filters, motion, rests, and live source changes work
+  in this mode too. `Ctrl+Alt+L` continues to edit the monitored content separately.
 - Keep running in the notification area when the control window is closed.
 - Optionally start with Windows and launch directly into the notification area.
 - Show version, edition, platform, and license information on the Settings page.
@@ -30,6 +35,10 @@ The single executable includes its icon, Chinese and English translations, and a
 - Discover and embed every JSON language file in `assets/i18n` during compilation.
 
 ## Measured local build
+
+Both editions use the same release version. See the [v0.8.0 release notes](docs/releases/v0.8.0.md)
+for the new protection-window workflow and edition-specific fixes. Existing native settings
+remain valid; installations without the new display-mode setting default to full-screen mode.
 
 - Executable: approximately 0.6 MiB
 - Idle private memory: approximately 3.5 MiB
